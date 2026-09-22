@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,10 +18,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.firebase.auth.FirebaseAuth
 import com.myapps.onlineexaminationapps.firebase.ChapterRepository
 import com.myapps.onlineexaminationapps.model.Chapter
+import com.myapps.onlineexaminationapps.ui.components.ExpandableText
 import kotlinx.coroutines.launch
+
+import com.myapps.onlineexaminationapps.firebase.QuestionRepository
 
 class ChapterListViewModel : ViewModel() {
     private val repository = ChapterRepository()
+    private val questionRepository = QuestionRepository()
 
     var chapters by mutableStateOf<List<Chapter>>(emptyList())
     var isLoading by mutableStateOf(false)
@@ -44,6 +49,14 @@ class ChapterListViewModel : ViewModel() {
             }
         }
     }
+
+    fun deleteChapter(chapterId: String) {
+        viewModelScope.launch {
+            questionRepository.deleteQuestionsByChapter(chapterId)
+            repository.deleteChapter(chapterId)
+            fetchChapters()
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,6 +68,31 @@ fun ChapterListScreen(
 ) {
     LaunchedEffect(Unit) {
         viewModel.fetchChapters()
+    }
+
+    var chapterToDelete by remember { mutableStateOf<Chapter?>(null) }
+
+    if (chapterToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { chapterToDelete = null },
+            title = { Text("Delete Chapter") },
+            text = { Text("Are you sure you want to delete chapter \"${chapterToDelete?.name}\"? All questions associated with this chapter will also be deleted.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        chapterToDelete?.let { viewModel.deleteChapter(it.id) }
+                        chapterToDelete = null
+                    }
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { chapterToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -96,7 +134,8 @@ fun ChapterListScreen(
                     items(viewModel.chapters) { chapter ->
                         ChapterListItem(
                             chapter = chapter,
-                            onClick = { onChapterClick(chapter.id) }
+                            onClick = { onChapterClick(chapter.id) },
+                            onDeleteClick = { chapterToDelete = chapter }
                         )
                     }
                 }
@@ -108,7 +147,8 @@ fun ChapterListScreen(
 @Composable
 fun ChapterListItem(
     chapter: Chapter,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onDeleteClick: (() -> Unit)? = null
 ) {
     Card(
         modifier = Modifier
@@ -116,15 +156,28 @@ fun ChapterListItem(
             .clickable(onClick = onClick),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .padding(16.dp)
-                .fillMaxWidth()
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(text = chapter.name, style = MaterialTheme.typography.titleMedium)
-            if (chapter.description.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(text = chapter.description, style = MaterialTheme.typography.bodyMedium)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = chapter.name, style = MaterialTheme.typography.titleMedium)
+                if (chapter.description.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    ExpandableText(text = chapter.description, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            if (onDeleteClick != null) {
+                IconButton(onClick = onDeleteClick) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Delete Chapter",
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
             }
         }
     }

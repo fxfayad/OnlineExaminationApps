@@ -22,6 +22,7 @@ import com.myapps.onlineexaminationapps.firebase.QuestionRepository
 import com.myapps.onlineexaminationapps.firebase.SubmissionRepository
 import com.myapps.onlineexaminationapps.model.Chapter
 import com.myapps.onlineexaminationapps.model.ExamResult
+import com.myapps.onlineexaminationapps.ui.components.ExpandableText
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
@@ -227,7 +228,7 @@ fun StudentHomeScreen(
                                 )
                                 if (chapter.description.isNotEmpty()) {
                                     Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
+                                    ExpandableText(
                                         text = chapter.description,
                                         style = MaterialTheme.typography.bodyMedium
                                     )

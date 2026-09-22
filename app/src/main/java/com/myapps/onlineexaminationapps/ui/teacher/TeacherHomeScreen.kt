@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Analytics
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,6 +25,7 @@ import com.myapps.onlineexaminationapps.firebase.QuestionRepository
 import com.myapps.onlineexaminationapps.model.Chapter
 import com.myapps.onlineexaminationapps.model.Question
 import com.myapps.onlineexaminationapps.model.TeacherAnalytics
+import com.myapps.onlineexaminationapps.ui.components.ExpandableText
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
@@ -90,6 +92,20 @@ class TeacherHomeViewModel : ViewModel() {
             }
         }
     }
+
+    fun deleteChapter(chapterId: String) {
+        viewModelScope.launch {
+            questionRepository.deleteQuestionsByChapter(chapterId)
+            chapterRepository.deleteChapter(chapterId)
+            val currentTeacherUid = FirebaseAuth.getInstance().currentUser?.uid
+            if (currentTeacherUid != null) {
+                val res = analyticsRepository.getTeacherAnalytics(currentTeacherUid)
+                if (res.isSuccess) {
+                    analytics = res.getOrNull()
+                }
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -109,6 +125,31 @@ fun TeacherHomeScreen(
 
     val chapterMap = remember(viewModel.chapters) {
         viewModel.chapters.associateBy { it.id }
+    }
+
+    var chapterToDelete by remember { mutableStateOf<Chapter?>(null) }
+
+    if (chapterToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { chapterToDelete = null },
+            title = { Text("Delete Chapter") },
+            text = { Text("Are you sure you want to delete chapter \"${chapterToDelete?.name}\"? All questions associated with this chapter will also be deleted.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        chapterToDelete?.let { viewModel.deleteChapter(it.id) }
+                        chapterToDelete = null
+                    }
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { chapterToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -273,17 +314,34 @@ fun TeacherHomeScreen(
                                 .clickable { onChapterClick(chapter.id) },
                             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                         ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Text(
-                                    text = chapter.name,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                if (chapter.description.isNotEmpty()) {
-                                    Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = chapter.description,
-                                        style = MaterialTheme.typography.bodyMedium
+                                        text = chapter.name,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    if (chapter.description.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        ExpandableText(
+                                            text = chapter.description,
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                    }
+                                }
+                                IconButton(
+                                    onClick = { chapterToDelete = chapter }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Delete Chapter",
+                                        tint = MaterialTheme.colorScheme.error
                                     )
                                 }
                             }

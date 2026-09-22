@@ -157,4 +157,38 @@ class QuestionRepository {
     }
 
     suspend fun getQuestionById(chapterId: String, questionId: String): Result<Question?> = getQuestionById(questionId)
+
+    suspend fun deleteQuestion(questionId: String): Result<Unit> = suspendCoroutine { continuation ->
+        questionsCollection.document(questionId).delete()
+            .addOnSuccessListener {
+                continuation.resume(Result.success(Unit))
+            }
+            .addOnFailureListener { e ->
+                continuation.resume(Result.failure(e))
+            }
+    }
+
+    suspend fun deleteQuestionsByChapter(chapterId: String): Result<Unit> = suspendCoroutine { continuation ->
+        questionsCollection.whereEqualTo("chapterId", chapterId).get()
+            .addOnSuccessListener { querySnapshot ->
+                if (querySnapshot.isEmpty) {
+                    continuation.resume(Result.success(Unit))
+                    return@addOnSuccessListener
+                }
+                val batch = firestore.batch()
+                for (doc in querySnapshot.documents) {
+                    batch.delete(doc.reference)
+                }
+                batch.commit()
+                    .addOnSuccessListener {
+                        continuation.resume(Result.success(Unit))
+                    }
+                    .addOnFailureListener { e ->
+                        continuation.resume(Result.failure(e))
+                    }
+            }
+            .addOnFailureListener { e ->
+                continuation.resume(Result.failure(e))
+            }
+    }
 }

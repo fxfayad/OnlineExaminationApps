@@ -189,4 +189,16 @@ class ChapterRepository {
             }
         awaitClose { listener.remove() }
     }
+
+    suspend fun deleteChapter(chapterId: String): Result<Unit> = suspendCoroutine { continuation ->
+        chaptersCollection.document(chapterId).delete()
+            .addOnSuccessListener {
+                Log.d("CHAPTER_DEBUG", "deleteChapter SUCCESS for doc: $chapterId")
+                continuation.resume(Result.success(Unit))
+            }
+            .addOnFailureListener { e ->
+                Log.e("CHAPTER_DEBUG", "deleteChapter FAILURE for doc: $chapterId", e)
+                continuation.resume(Result.failure(e))
+            }
+    }
 }

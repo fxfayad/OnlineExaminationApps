@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -51,6 +52,21 @@ class QuestionManagementViewModel : ViewModel() {
             }
         }
     }
+
+    fun deleteChapter(chapterId: String, onDeleted: () -> Unit) {
+        viewModelScope.launch {
+            questionRepository.deleteQuestionsByChapter(chapterId)
+            chapterRepository.deleteChapter(chapterId)
+            onDeleted()
+        }
+    }
+
+    fun deleteQuestion(chapterId: String, questionId: String) {
+        viewModelScope.launch {
+            questionRepository.deleteQuestion(questionId)
+            loadData(chapterId)
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -65,6 +81,55 @@ fun QuestionManagementScreen(
 ) {
     LaunchedEffect(chapterId) {
         viewModel.loadData(chapterId)
+    }
+
+    var showDeleteChapterDialog by remember { mutableStateOf(false) }
+    var questionToDelete by remember { mutableStateOf<Question?>(null) }
+
+    if (showDeleteChapterDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteChapterDialog = false },
+            title = { Text("Delete Chapter") },
+            text = { Text("Are you sure you want to delete chapter \"${viewModel.chapter?.name}\"? All questions in this chapter will also be deleted.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteChapterDialog = false
+                        viewModel.deleteChapter(chapterId, onBackClick)
+                    }
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteChapterDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (questionToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { questionToDelete = null },
+            title = { Text("Delete Question") },
+            text = { Text("Are you sure you want to delete this question?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        questionToDelete?.let { viewModel.deleteQuestion(chapterId, it.id) }
+                        questionToDelete = null
+                    }
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { questionToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -117,8 +182,17 @@ fun QuestionManagementScreen(
                                         style = MaterialTheme.typography.titleLarge,
                                         modifier = Modifier.weight(1f)
                                     )
-                                    IconButton(onClick = { onEditChapterClick(chapter.id) }) {
-                                        Icon(Icons.Default.Edit, contentDescription = "Edit Chapter")
+                                    Row {
+                                        IconButton(onClick = { onEditChapterClick(chapter.id) }) {
+                                            Icon(Icons.Default.Edit, contentDescription = "Edit Chapter")
+                                        }
+                                        IconButton(onClick = { showDeleteChapterDialog = true }) {
+                                            Icon(
+                                                Icons.Default.Delete,
+                                                contentDescription = "Delete Chapter",
+                                                tint = MaterialTheme.colorScheme.error
+                                            )
+                                        }
                                     }
                                 }
                                 if (chapter.description.isNotEmpty()) {
@@ -143,7 +217,8 @@ fun QuestionManagementScreen(
                             items(viewModel.questions) { question ->
                                 QuestionItem(
                                     question = question,
-                                    onEditClick = { onEditQuestionClick(chapterId, question.id) }
+                                    onEditClick = { onEditQuestionClick(chapterId, question.id) },
+                                    onDeleteClick = { questionToDelete = question }
                                 )
                             }
                         }
@@ -155,7 +230,11 @@ fun QuestionManagementScreen(
 }
 
 @Composable
-fun QuestionItem(question: Question, onEditClick: () -> Unit) {
+fun QuestionItem(
+    question: Question,
+    onEditClick: () -> Unit,
+    onDeleteClick: () -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -167,8 +246,17 @@ fun QuestionItem(question: Question, onEditClick: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(text = question.question, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                IconButton(onClick = onEditClick) {
-                    Icon(Icons.Default.Edit, contentDescription = "Edit Question")
+                Row {
+                    IconButton(onClick = onEditClick) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit Question")
+                    }
+                    IconButton(onClick = onDeleteClick) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Delete Question",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
                 }
             }
             Spacer(modifier = Modifier.height(4.dp))
