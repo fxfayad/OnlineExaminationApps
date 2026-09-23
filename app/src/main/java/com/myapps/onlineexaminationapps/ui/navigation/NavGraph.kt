@@ -23,7 +23,7 @@ import com.myapps.onlineexaminationapps.ui.teacher.CreateChapterScreen
 import com.myapps.onlineexaminationapps.ui.teacher.CreateQuestionScreen
 import com.myapps.onlineexaminationapps.ui.teacher.QuestionManagementScreen
 import com.myapps.onlineexaminationapps.ui.teacher.TeacherAnalyticsScreen
-import com.myapps.onlineexaminationapps.ui.teacher.TeacherHomeScreen
+import com.myapps.onlineexaminationapps.ui.teacher.TeacherDashboardScreen
 import com.myapps.onlineexaminationapps.ui.teacher.TeacherStudentAnswerScreen
 import com.myapps.onlineexaminationapps.ui.teacher.TeacherSubmissionDetailScreen
 import com.myapps.onlineexaminationapps.ui.teacher.TeacherSubmissionListScreen
@@ -127,7 +127,7 @@ fun NavGraph() {
             LocationPermissionScreen(
                 role = role,
                 onPermissionGranted = {
-                    val destination = if (role == "teacher") "teacher_home" else "student_home"
+                    val destination = if (role == "teacher") "teacher_dashboard" else "student_home"
                     navController.navigate(destination) {
                         popUpTo("request_location/$role") { inclusive = true }
                     }
@@ -170,7 +170,7 @@ fun NavGraph() {
             )
         }
 
-        // Student Chapter Screen (STEP 6)
+        // Student Chapter Screen
         composable("student_chapter/{chapterId}") { backStackEntry ->
             val chapterId = backStackEntry.arguments?.getString("chapterId") ?: ""
             val parentEntry = remember(backStackEntry) { backStackEntry }
@@ -185,7 +185,7 @@ fun NavGraph() {
             )
         }
 
-        // Review Answers Screen (STEP 6 & 7)
+        // Review Answers Screen
         composable("review_answers/{chapterId}") { backStackEntry ->
             val chapterId = backStackEntry.arguments?.getString("chapterId") ?: ""
             val parentEntry = remember(backStackEntry) {
@@ -203,7 +203,7 @@ fun NavGraph() {
             )
         }
 
-        // Exam Result Screen (STEP 7)
+        // Exam Result Screen
         composable("result/{submissionId}") { backStackEntry ->
             val submissionId = backStackEntry.arguments?.getString("submissionId") ?: ""
             ResultScreen(
@@ -215,7 +215,7 @@ fun NavGraph() {
             )
         }
 
-        // Student Questions Flow (Legacy / Direct submit)
+        // Student Questions Flow
         composable("student_questions/{chapterId}") { backStackEntry ->
             val chapterId = backStackEntry.arguments?.getString("chapterId") ?: ""
             StudentQuestionsScreen(
@@ -225,9 +225,9 @@ fun NavGraph() {
             )
         }
 
-        // Teacher Dashboard
-        composable("teacher_home") {
-            TeacherHomeScreen(
+        // Teacher Dashboard Route (teacher_dashboard)
+        composable("teacher_dashboard") {
+            TeacherDashboardScreen(
                 onCreateChapterClick = {
                     navController.navigate("create_chapter")
                 },
@@ -252,7 +252,34 @@ fun NavGraph() {
             )
         }
 
-        // Teacher Analytics (STEP 9)
+        // Teacher Home Alias Route
+        composable("teacher_home") {
+            TeacherDashboardScreen(
+                onCreateChapterClick = {
+                    navController.navigate("create_chapter")
+                },
+                onCreateQuestionClick = {
+                    navController.navigate("create_question")
+                },
+                onViewStudentAnswersClick = {
+                    navController.navigate("teacher_answers")
+                },
+                onAnalyticsClick = {
+                    navController.navigate("teacher_analytics")
+                },
+                onChapterClick = { chapterId ->
+                    navController.navigate("question_management/$chapterId")
+                },
+                onLogoutClick = {
+                    FirebaseAuth.getInstance().signOut()
+                    navController.navigate("login") {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        // Teacher Analytics
         composable("teacher_analytics") {
             TeacherAnalyticsScreen(
                 onBackClick = { navController.popBackStack() },
@@ -262,7 +289,7 @@ fun NavGraph() {
             )
         }
 
-        // Create Question (STEP 5)
+        // Create Question
         composable("create_question") {
             CreateQuestionScreen(
                 preselectedChapterId = null,
@@ -278,7 +305,7 @@ fun NavGraph() {
             )
         }
 
-        // View Student Answers Flow (STEP 8)
+        // View Student Answers Flow
         composable("view_student_answers") {
             TeacherStudentAnswerScreen(
                 onBackClick = { navController.popBackStack() },
@@ -316,7 +343,7 @@ fun NavGraph() {
             )
         }
 
-        // Create Chapter
+        // Create Chapter Route
         composable("create_chapter") {
             CreateChapterScreen(
                 chapterId = null,
@@ -329,7 +356,7 @@ fun NavGraph() {
             )
         }
 
-        // Edit Chapter
+        // Edit Chapter Route
         composable("create_chapter?chapterId={chapterId}") { backStackEntry ->
             val chapterId = backStackEntry.arguments?.getString("chapterId")
             CreateChapterScreen(

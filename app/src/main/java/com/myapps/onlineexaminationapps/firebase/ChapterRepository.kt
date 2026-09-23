@@ -3,6 +3,7 @@ package com.myapps.onlineexaminationapps.firebase
 import android.util.Log
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.myapps.onlineexaminationapps.model.Chapter
 import kotlinx.coroutines.channels.awaitClose
@@ -16,6 +17,24 @@ class ChapterRepository {
     private val firestore = FirebaseFirestore.getInstance()
     private val chaptersCollection = firestore.collection("chapters")
 
+    private fun mapDocToChapter(doc: DocumentSnapshot): Chapter? {
+        val c = doc.toObject(Chapter::class.java) ?: return null
+        val finalId = c.id.ifEmpty { c.chapterId.ifEmpty { doc.id } }
+        val finalTitle = c.title.ifEmpty { c.name }
+        val finalName = c.name.ifEmpty { c.title }
+        val finalTeacher = c.teacherId.ifEmpty { c.createdBy }
+        val finalCreatedBy = c.createdBy.ifEmpty { c.teacherId }
+
+        return c.copy(
+            id = finalId,
+            chapterId = finalId,
+            title = finalTitle,
+            name = finalName,
+            teacherId = finalTeacher,
+            createdBy = finalCreatedBy
+        )
+    }
+
     suspend fun createChapter(
         name: String,
         description: String
@@ -24,46 +43,56 @@ class ChapterRepository {
             val currentUser = auth.currentUser
             if (currentUser == null) {
                 Log.e("CHAPTER_DEBUG", "createChapter failed: User not authenticated")
-                Log.e("FIREBASE_DEBUG", "createChapter failed: User not authenticated")
                 continuation.resume(Result.failure(Exception("User not authenticated")))
                 return@suspendCoroutine
             }
             val docRef = chaptersCollection.document()
+            val chapterId = docRef.id
             val chapter = Chapter(
-                id = docRef.id,
+                id = chapterId,
+                chapterId = chapterId,
                 name = name,
+                title = name,
                 description = description,
                 createdBy = currentUser.uid,
+                teacherId = currentUser.uid,
                 createdAt = Timestamp.now()
             )
-            Log.d("CHAPTER_DEBUG", "createChapter saving to Firestore doc: ${docRef.id}, name: '$name', createdBy: '${currentUser.uid}'")
-            Log.d("FIREBASE_DEBUG", "createChapter saving to Firestore doc: ${docRef.id}, name: '$name'")
+            Log.d("CHAPTER_DEBUG", "createChapter saving to Firestore doc: $chapterId, title: '$name', teacherId: '${currentUser.uid}'")
             docRef.set(chapter)
                 .addOnSuccessListener {
-                    Log.d("CHAPTER_DEBUG", "createChapter write SUCCESS for doc: ${docRef.id}")
-                    Log.d("FIREBASE_DEBUG", "createChapter write SUCCESS for doc: ${docRef.id}")
+                    Log.d("CHAPTER_DEBUG", "createChapter write SUCCESS for doc: $chapterId")
                     continuation.resume(Result.success(Unit))
                 }
                 .addOnFailureListener { e ->
-                    Log.e("CHAPTER_DEBUG", "createChapter write FAILURE for doc: ${docRef.id}", e)
-                    Log.e("FIREBASE_DEBUG", "createChapter write FAILURE for doc: ${docRef.id}", e)
+                    Log.e("CHAPTER_DEBUG", "createChapter write FAILURE for doc: $chapterId", e)
                     continuation.resume(Result.failure(e))
                 }
         } catch (e: Exception) {
             Log.e("CHAPTER_DEBUG", "createChapter exception", e)
-            Log.e("FIREBASE_DEBUG", "createChapter exception", e)
             continuation.resume(Result.failure(e))
         }
     }
 
     suspend fun updateChapter(chapter: Chapter): Result<Unit> = suspendCoroutine { continuation ->
-        chaptersCollection.document(chapter.id).set(chapter)
+        val finalId = chapter.effectiveId
+        val finalTitle = chapter.displayTitle
+        val finalTeacher = chapter.effectiveTeacherId
+        val updated = chapter.copy(
+            id = finalId,
+            chapterId = finalId,
+            title = finalTitle,
+            name = finalTitle,
+            teacherId = finalTeacher,
+            createdBy = finalTeacher
+        )
+        chaptersCollection.document(finalId).set(updated)
             .addOnSuccessListener {
-                Log.d("CHAPTER_DEBUG", "updateChapter SUCCESS for doc: ${chapter.id}")
+                Log.d("CHAPTER_DEBUG", "updateChapter SUCCESS for doc: $finalId")
                 continuation.resume(Result.success(Unit))
             }
             .addOnFailureListener { e ->
-                Log.e("CHAPTER_DEBUG", "updateChapter FAILURE for doc: ${chapter.id}", e)
+                Log.e("CHAPTER_DEBUG", "updateChapter FAILURE for doc: $finalId", e)
                 continuation.resume(Result.failure(e))
             }
     }
@@ -71,9 +100,8 @@ class ChapterRepository {
     suspend fun getChapterById(id: String): Result<Chapter?> = suspendCoroutine { continuation ->
         chaptersCollection.document(id).get()
             .addOnSuccessListener { document ->
-                val c = document.toObject(Chapter::class.java)
-                val chapter = c?.copy(id = c.id.ifEmpty { document.id })
-                Log.d("CHAPTER_DEBUG", "getChapterById SUCCESS: ${chapter?.id}, Name: ${chapter?.name}")
+                val chapter = if (document.exists()) mapDocToChapter(document) else null
+                Log.d("CHAPTER_DEBUG", "getChapterById SUCCESS: ${chapter?.id}, Title: ${chapter?.displayTitle}")
                 continuation.resume(Result.success(chapter))
             }
             .addOnFailureListener { e ->
@@ -84,13 +112,12 @@ class ChapterRepository {
 
     suspend fun getTeacherChapters(teacherUid: String): Result<List<Chapter>> = suspendCoroutine { continuation ->
         Log.d("CHAPTER_DEBUG", "getTeacherChapters query started for teacherUid: $teacherUid")
-        chaptersCollection.whereEqualTo("createdBy", teacherUid).get()
+        chaptersCollection.get()
             .addOnSuccessListener { querySnapshot ->
                 try {
-                    val chapters = querySnapshot.documents.mapNotNull { doc ->
-                        val c = doc.toObject(Chapter::class.java)
-                        c?.copy(id = c.id.ifEmpty { doc.id })
-                    }
+                    val chapters = querySnapshot.documents
+                        .mapNotNull { mapDocToChapter(it) }
+                        .filter { it.effectiveTeacherId == teacherUid }
                     Log.d("CHAPTER_DEBUG", "getTeacherChapters SUCCESS. Found ${chapters.size} chapters for teacher $teacherUid")
                     continuation.resume(Result.success(chapters))
                 } catch (e: Exception) {
@@ -109,10 +136,7 @@ class ChapterRepository {
         chaptersCollection.get()
             .addOnSuccessListener { querySnapshot ->
                 try {
-                    val chapters = querySnapshot.documents.mapNotNull { doc ->
-                        val c = doc.toObject(Chapter::class.java)
-                        c?.copy(id = c.id.ifEmpty { doc.id })
-                    }
+                    val chapters = querySnapshot.documents.mapNotNull { mapDocToChapter(it) }
                     Log.d("CHAPTER_DEBUG", "getAllChapters direct get SUCCESS. Count: ${chapters.size}")
                     continuation.resume(Result.success(chapters))
                 } catch (e: Exception) {
@@ -122,7 +146,6 @@ class ChapterRepository {
             }
             .addOnFailureListener { e ->
                 Log.e("CHAPTER_DEBUG", "getAllChapters direct get FAILED", e)
-                Log.e("FIREBASE_DEBUG", "getAllChapters direct get FAILED: ${e.message}", e)
                 continuation.resume(Result.failure(e))
             }
     }
@@ -132,22 +155,18 @@ class ChapterRepository {
     fun getTeacherChaptersRealtime(teacherUid: String): Flow<Result<List<Chapter>>> = callbackFlow {
         Log.d("CHAPTER_DEBUG", "getTeacherChaptersRealtime started for teacherUid: $teacherUid")
         val listener = chaptersCollection
-            .whereEqualTo("createdBy", teacherUid)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     Log.e("CHAPTER_DEBUG", "getTeacherChaptersRealtime error", error)
-                    Log.e("FIREBASE_DEBUG", "getTeacherChaptersRealtime error: ${error.message}", error)
                     trySend(Result.failure(error))
                     return@addSnapshotListener
                 }
                 if (snapshot != null) {
                     try {
-                        val chapters = snapshot.documents.mapNotNull { doc ->
-                            val c = doc.toObject(Chapter::class.java)
-                            c?.copy(id = c.id.ifEmpty { doc.id })
-                        }
+                        val chapters = snapshot.documents
+                            .mapNotNull { mapDocToChapter(it) }
+                            .filter { it.effectiveTeacherId == teacherUid }
                         Log.d("CHAPTER_DEBUG", "getTeacherChaptersRealtime updated: Count=${chapters.size}")
-                        Log.d("FIREBASE_DEBUG", "Teacher Chapter Count: ${chapters.size}")
                         trySend(Result.success(chapters))
                     } catch (e: Exception) {
                         Log.e("CHAPTER_DEBUG", "Error deserializing in getTeacherChaptersRealtime", e)
@@ -159,27 +178,18 @@ class ChapterRepository {
     }
 
     fun getAllChaptersRealtime(): Flow<Result<List<Chapter>>> = callbackFlow {
-        val currentUser = auth.currentUser
-        Log.d("CHAPTER_DEBUG", "getAllChaptersRealtime started. Student Auth UID: ${currentUser?.uid}, Email: ${currentUser?.email}")
-        Log.d("FIREBASE_DEBUG", "getAllChaptersRealtime started for UID: ${currentUser?.uid}")
+        Log.d("CHAPTER_DEBUG", "getAllChaptersRealtime started")
         val listener = chaptersCollection
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     Log.e("CHAPTER_DEBUG", "getAllChaptersRealtime listener error", error)
-                    Log.e("FIREBASE_DEBUG", "Student chapters query permission/network error: ${error.message}", error)
                     trySend(Result.failure(error))
                     return@addSnapshotListener
                 }
                 if (snapshot != null) {
                     try {
-                        val chapters = snapshot.documents.mapNotNull { doc ->
-                            val c = doc.toObject(Chapter::class.java)
-                            val finalChapter = c?.copy(id = c.id.ifEmpty { doc.id })
-                            Log.d("CHAPTER_DEBUG", "Student Chapter loaded -> ID: ${doc.id}, Name: ${finalChapter?.name}")
-                            finalChapter
-                        }
+                        val chapters = snapshot.documents.mapNotNull { mapDocToChapter(it) }
                         Log.d("CHAPTER_DEBUG", "getAllChaptersRealtime total chapters count: ${chapters.size}")
-                        Log.d("FIREBASE_DEBUG", "Student Chapter count: ${chapters.size}")
                         trySend(Result.success(chapters))
                     } catch (e: Exception) {
                         Log.e("CHAPTER_DEBUG", "Error deserializing in getAllChaptersRealtime", e)

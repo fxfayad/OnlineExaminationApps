@@ -244,11 +244,22 @@ fun StudentHomeScreen(
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(12.dp))
-                                Button(
-                                    onClick = { onChapterClick(chapter.id) },
-                                    modifier = Modifier.align(Alignment.End)
-                                ) {
-                                    Text("Open Chapter")
+                                val submission = viewModel.results.find { it.chapterId == chapter.id }
+                                if (submission != null) {
+                                    Button(
+                                        onClick = { onResultClick(submission.id) },
+                                        modifier = Modifier.align(Alignment.End),
+                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                                    ) {
+                                        Text("View Result")
+                                    }
+                                } else {
+                                    Button(
+                                        onClick = { onChapterClick(chapter.id) },
+                                        modifier = Modifier.align(Alignment.End)
+                                    ) {
+                                        Text("Open Chapter")
+                                    }
                                 }
                             }
                         }

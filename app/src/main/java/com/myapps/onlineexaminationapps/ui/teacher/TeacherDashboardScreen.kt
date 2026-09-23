@@ -1,0 +1,326 @@
+package com.myapps.onlineexaminationapps.ui.teacher
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.Analytics
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.google.firebase.auth.FirebaseAuth
+import com.myapps.onlineexaminationapps.firebase.AnalyticsRepository
+import com.myapps.onlineexaminationapps.firebase.ChapterRepository
+import com.myapps.onlineexaminationapps.firebase.QuestionRepository
+import com.myapps.onlineexaminationapps.model.Chapter
+import com.myapps.onlineexaminationapps.model.Question
+import com.myapps.onlineexaminationapps.model.TeacherAnalytics
+import com.myapps.onlineexaminationapps.ui.components.ExpandableText
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.launch
+
+class TeacherDashboardViewModel : ViewModel() {
+    private val chapterRepository = ChapterRepository()
+    private val questionRepository = QuestionRepository()
+    private val analyticsRepository = AnalyticsRepository()
+
+    var chapters by mutableStateOf<List<Chapter>>(emptyList())
+    var questions by mutableStateOf<List<Question>>(emptyList())
+    var analytics by mutableStateOf<TeacherAnalytics?>(null)
+    var isLoading by mutableStateOf(true)
+    var errorMessage by mutableStateOf<String?>(null)
+
+    private var chaptersJob: Job? = null
+    private var questionsJob: Job? = null
+
+    fun loadTeacherData() {
+        val currentTeacher = FirebaseAuth.getInstance().currentUser
+        if (currentTeacher == null) {
+            isLoading = false
+            errorMessage = "User not logged in. Please sign in."
+            return
+        }
+
+        val teacherUid = currentTeacher.uid
+        isLoading = true
+        errorMessage = null
+        chaptersJob?.cancel()
+        questionsJob?.cancel()
+
+        // Realtime Firestore snapshot listener for My Chapters (teacherId == currentUser.uid)
+        chaptersJob = viewModelScope.launch {
+            chapterRepository.getTeacherChaptersRealtime(teacherUid)
+                .catch { e ->
+                    isLoading = false
+                    errorMessage = "Firestore operation failed: ${e.message ?: "Unable to fetch chapters."}"
+                }
+                .collect { result ->
+                    isLoading = false
+                    if (result.isSuccess) {
+                        chapters = result.getOrNull() ?: emptyList()
+                        errorMessage = null
+                    } else {
+                        errorMessage = result.exceptionOrNull()?.message ?: "Failed to load chapters."
+                    }
+                }
+        }
+
+        questionsJob = viewModelScope.launch {
+            questionRepository.getTeacherQuestionsRealtime(teacherUid)
+                .catch {
+                    // non-fatal
+                }
+                .collect { result ->
+                    if (result.isSuccess) {
+                        questions = result.getOrNull() ?: emptyList()
+                    }
+                }
+        }
+
+        viewModelScope.launch {
+            val res = analyticsRepository.getTeacherAnalytics(teacherUid)
+            if (res.isSuccess) {
+                analytics = res.getOrNull()
+            }
+        }
+    }
+
+    fun deleteChapter(chapterId: String) {
+        viewModelScope.launch {
+            questionRepository.deleteQuestionsByChapter(chapterId)
+            chapterRepository.deleteChapter(chapterId)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TeacherDashboardScreen(
+    onCreateChapterClick: () -> Unit,
+    onCreateQuestionClick: () -> Unit = {},
+    onViewStudentAnswersClick: () -> Unit = {},
+    onAnalyticsClick: () -> Unit = {},
+    onChapterClick: (String) -> Unit = {},
+    onLogoutClick: () -> Unit = {},
+    viewModel: TeacherDashboardViewModel = viewModel()
+) {
+    LaunchedEffect(Unit) {
+        viewModel.loadTeacherData()
+    }
+
+    var chapterToDelete by remember { mutableStateOf<Chapter?>(null) }
+
+    if (chapterToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { chapterToDelete = null },
+            title = { Text("Delete Chapter") },
+            text = { Text("Are you sure you want to delete chapter \"${chapterToDelete?.displayTitle}\"? All questions associated with this chapter will also be deleted.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        chapterToDelete?.let { viewModel.deleteChapter(it.effectiveId) }
+                        chapterToDelete = null
+                    }
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { chapterToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Teacher Dashboard") },
+                actions = {
+                    IconButton(onClick = onLogoutClick) {
+                        Icon(imageVector = Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Logout")
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            if (viewModel.isLoading && viewModel.chapters.isEmpty()) {
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    CircularProgressIndicator()
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Loading dashboard...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else if (viewModel.errorMessage != null && viewModel.chapters.isEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = viewModel.errorMessage!!,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = { viewModel.loadTeacherData() }) {
+                        Text("Retry")
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(vertical = 16.dp)
+                ) {
+                    // Top Action Buttons
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = onCreateChapterClick,
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(vertical = 12.dp)
+                            ) {
+                                Text("Create Chapter", textAlign = TextAlign.Center)
+                            }
+                            Button(
+                                onClick = onCreateQuestionClick,
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(vertical = 12.dp)
+                            ) {
+                                Text("Create Question", textAlign = TextAlign.Center)
+                            }
+                        }
+                    }
+
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = onViewStudentAnswersClick,
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(vertical = 12.dp)
+                            ) {
+                                Text("View Student Answer", textAlign = TextAlign.Center)
+                            }
+                            OutlinedButton(
+                                onClick = onAnalyticsClick,
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(vertical = 12.dp)
+                            ) {
+                                Icon(imageVector = Icons.Default.Analytics, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Analytics", textAlign = TextAlign.Center)
+                            }
+                        }
+                    }
+
+                    // Section 1: My Chapters
+                    item {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "My Chapters",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    if (viewModel.chapters.isEmpty()) {
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(24.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "No chapters created yet.",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        items(viewModel.chapters, key = { it.effectiveId }) { chapter ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onChapterClick(chapter.effectiveId) },
+                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = chapter.displayTitle,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        if (chapter.description.isNotEmpty()) {
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            ExpandableText(
+                                                text = chapter.description,
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                        }
+                                    }
+                                    IconButton(
+                                        onClick = { chapterToDelete = chapter }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Delete Chapter",
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

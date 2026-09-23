@@ -160,6 +160,18 @@ fun LocationPermissionScreen(
                         ) {
                             Text("Open App Settings")
                         }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        TextButton(
+                            onClick = {
+                                Log.d("LOCATION_PERMISSION_DEBUG", "User selected Continue Without Location for UID: ${currentUser?.uid}")
+                                onPermissionGranted()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Continue Without Location")
+                        }
                     }
                 }
             } else if (isPermissionGranted) {

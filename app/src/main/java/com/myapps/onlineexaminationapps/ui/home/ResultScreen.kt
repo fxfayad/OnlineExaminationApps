@@ -185,9 +185,14 @@ fun ResultScreen(
                                 }
 
                                 if (res.shortQuestionTotalMarks > 0) {
+                                    val shortStatusText = if (isCompleted) {
+                                        "${res.shortQuestionObtainedMarks} / ${res.shortQuestionTotalMarks}"
+                                    } else {
+                                        "Pending Evaluation (${res.shortQuestionTotalMarks} marks)"
+                                    }
                                     DetailRow(
                                         label = "Short Questions",
-                                        value = "Pending Evaluation (${res.shortQuestionTotalMarks} marks)"
+                                        value = shortStatusText
                                     )
                                 }
 
