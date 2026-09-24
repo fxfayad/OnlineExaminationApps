@@ -447,8 +447,27 @@ fun NavGraph() {
         // Add/Edit Question
         composable("add_question/{chapterId}?questionId={questionId}") { backStackEntry ->
             val chapterId = backStackEntry.arguments?.getString("chapterId") ?: ""
+            val questionId = backStackEntry.arguments?.getString("questionId")
             CreateQuestionScreen(
                 preselectedChapterId = chapterId,
+                questionId = questionId,
+                onBackClick = {
+                    navController.popBackStack()
+                },
+                onCreateChapterClick = {
+                    navController.navigate("create_chapter")
+                },
+                onQuestionSaved = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable("edit_question/{questionId}") { backStackEntry ->
+            val questionId = backStackEntry.arguments?.getString("questionId")
+            CreateQuestionScreen(
+                preselectedChapterId = null,
+                questionId = questionId,
                 onBackClick = {
                     navController.popBackStack()
                 },
