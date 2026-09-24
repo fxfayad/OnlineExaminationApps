@@ -7,7 +7,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Analytics
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -76,6 +80,7 @@ class TeacherDashboardViewModel : ViewModel() {
                 }
         }
 
+        // Realtime Firestore snapshot listener for My Questions
         questionsJob = viewModelScope.launch {
             questionRepository.getTeacherQuestionsRealtime(teacherUid)
                 .catch {
@@ -102,6 +107,12 @@ class TeacherDashboardViewModel : ViewModel() {
             chapterRepository.deleteChapter(chapterId)
         }
     }
+
+    fun deleteQuestion(questionId: String) {
+        viewModelScope.launch {
+            questionRepository.deleteQuestion(questionId)
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -112,6 +123,7 @@ fun TeacherDashboardScreen(
     onViewStudentAnswersClick: () -> Unit = {},
     onAnalyticsClick: () -> Unit = {},
     onChapterClick: (String) -> Unit = {},
+    onEditQuestionClick: (String, String) -> Unit = { _, _ -> },
     onLogoutClick: () -> Unit = {},
     viewModel: TeacherDashboardViewModel = viewModel()
 ) {
@@ -119,7 +131,12 @@ fun TeacherDashboardScreen(
         viewModel.loadTeacherData()
     }
 
+    val chapterMap = remember(viewModel.chapters) {
+        viewModel.chapters.associateBy { it.effectiveId }
+    }
+
     var chapterToDelete by remember { mutableStateOf<Chapter?>(null) }
+    var questionToDelete by remember { mutableStateOf<Question?>(null) }
 
     if (chapterToDelete != null) {
         AlertDialog(
@@ -144,6 +161,29 @@ fun TeacherDashboardScreen(
         )
     }
 
+    if (questionToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { questionToDelete = null },
+            title = { Text("Delete Question") },
+            text = { Text("Are you sure you want to delete this question?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        questionToDelete?.let { viewModel.deleteQuestion(it.effectiveId) }
+                        questionToDelete = null
+                    }
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { questionToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -161,7 +201,7 @@ fun TeacherDashboardScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            if (viewModel.isLoading && viewModel.chapters.isEmpty()) {
+            if (viewModel.isLoading && viewModel.chapters.isEmpty() && viewModel.questions.isEmpty()) {
                 Column(
                     modifier = Modifier.align(Alignment.Center),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -314,6 +354,185 @@ fun TeacherDashboardScreen(
                                             contentDescription = "Delete Chapter",
                                             tint = MaterialTheme.colorScheme.error
                                         )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Section 2: My Questions
+                    item {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "My Questions",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    if (viewModel.questions.isEmpty()) {
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(24.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "No questions created yet.",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        items(viewModel.questions, key = { it.effectiveId }) { question ->
+                            val chapName = chapterMap[question.chapterId]?.displayTitle ?: "Chapter"
+                            var isExpanded by remember { mutableStateOf(false) }
+
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { isExpanded = !isExpanded },
+                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Q: ${question.effectiveQuestionText}",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            IconButton(
+                                                onClick = { onEditQuestionClick(question.chapterId, question.effectiveId) }
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Edit,
+                                                    contentDescription = "Edit Question"
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = { questionToDelete = question }
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Delete,
+                                                    contentDescription = "Delete Question",
+                                                    tint = MaterialTheme.colorScheme.error
+                                                )
+                                            }
+                                            IconButton(onClick = { isExpanded = !isExpanded }) {
+                                                Icon(
+                                                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                                    contentDescription = if (isExpanded) "Collapse" else "Expand"
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(6.dp))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        AssistChip(
+                                            onClick = {},
+                                            label = { Text(if (question.isMcq) "MCQ" else "Short Question") },
+                                            colors = AssistChipDefaults.assistChipColors(
+                                                containerColor = MaterialTheme.colorScheme.primaryContainer
+                                            )
+                                        )
+                                        Text(
+                                            text = "Marks: ${question.marks}",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Chapter: $chapName",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+
+                                    if (isExpanded) {
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        HorizontalDivider()
+                                        Spacer(modifier = Modifier.height(12.dp))
+
+                                        if (question.isMcq) {
+                                            Text(
+                                                text = "Options & Answer:",
+                                                style = MaterialTheme.typography.labelLarge,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(modifier = Modifier.height(6.dp))
+
+                                            val opts = listOf(
+                                                "Option A: " + question.effectiveOptionA,
+                                                "Option B: " + question.effectiveOptionB,
+                                                "Option C: " + question.effectiveOptionC,
+                                                "Option D: " + question.effectiveOptionD
+                                            )
+                                            opts.forEach { optStr ->
+                                                if (optStr.length > 10) {
+                                                    val isCorrect = question.correctAnswer.isNotBlank() && optStr.contains(question.correctAnswer)
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        modifier = Modifier.padding(vertical = 2.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = optStr,
+                                                            style = MaterialTheme.typography.bodyMedium,
+                                                            fontWeight = if (isCorrect) FontWeight.Bold else FontWeight.Normal,
+                                                            color = if (isCorrect) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                        )
+                                                        if (isCorrect) {
+                                                            Spacer(modifier = Modifier.width(6.dp))
+                                                            Icon(
+                                                                imageVector = Icons.Default.Check,
+                                                                contentDescription = "Correct Answer",
+                                                                tint = MaterialTheme.colorScheme.primary,
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                            Text(
+                                                                text = "(Correct)",
+                                                                style = MaterialTheme.typography.bodySmall,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = MaterialTheme.colorScheme.primary
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            Text(
+                                                text = "Expected Answer:",
+                                                style = MaterialTheme.typography.labelLarge,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = if (question.effectiveAnswer.isBlank()) "No expected answer set." else question.effectiveAnswer,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                     }
                                 }
                             }

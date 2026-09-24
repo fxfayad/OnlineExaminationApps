@@ -5,6 +5,7 @@ import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.myapps.onlineexaminationapps.model.ExamResult
+import com.myapps.onlineexaminationapps.model.Result as AppResult
 import com.myapps.onlineexaminationapps.model.StudentAnswer
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -16,24 +17,38 @@ class SubmissionRepository {
     private val auth = FirebaseAuth.getInstance()
     private val firestore = FirebaseFirestore.getInstance()
     private val submissionsCollection = firestore.collection("submissions")
+    private val resultsCollection = firestore.collection("results")
     private val studentAnswersCollection = firestore.collection("studentAnswers")
     private val usersCollection = firestore.collection("users")
 
     suspend fun hasStudentSubmittedChapter(studentId: String, chapterId: String): Result<Boolean> = suspendCoroutine { continuation ->
-        submissionsCollection
+        resultsCollection
             .whereEqualTo("studentId", studentId)
             .whereEqualTo("chapterId", chapterId)
             .get()
             .addOnSuccessListener { querySnapshot ->
-                continuation.resume(Result.success(!querySnapshot.isEmpty))
+                if (!querySnapshot.isEmpty) {
+                    continuation.resume(Result.success(true))
+                } else {
+                    submissionsCollection
+                        .whereEqualTo("studentId", studentId)
+                        .whereEqualTo("chapterId", chapterId)
+                        .get()
+                        .addOnSuccessListener { subSnapshot ->
+                            continuation.resume(Result.success(!subSnapshot.isEmpty))
+                        }
+                        .addOnFailureListener {
+                            continuation.resume(Result.success(false))
+                        }
+                }
             }
-            .addOnFailureListener { e ->
-                continuation.resume(Result.failure(e))
+            .addOnFailureListener {
+                continuation.resume(Result.success(false))
             }
     }
 
     suspend fun getStudentSubmissionForChapter(studentId: String, chapterId: String): Result<ExamResult?> = suspendCoroutine { continuation ->
-        submissionsCollection
+        resultsCollection
             .whereEqualTo("studentId", studentId)
             .whereEqualTo("chapterId", chapterId)
             .get()
@@ -43,7 +58,22 @@ class SubmissionRepository {
                     val res = doc.toObject(ExamResult::class.java)?.copy(id = doc.id)
                     continuation.resume(Result.success(res))
                 } else {
-                    continuation.resume(Result.success(null))
+                    submissionsCollection
+                        .whereEqualTo("studentId", studentId)
+                        .whereEqualTo("chapterId", chapterId)
+                        .get()
+                        .addOnSuccessListener { subSnap ->
+                            if (!subSnap.isEmpty) {
+                                val doc = subSnap.documents.first()
+                                val res = doc.toObject(ExamResult::class.java)?.copy(id = doc.id)
+                                continuation.resume(Result.success(res))
+                            } else {
+                                continuation.resume(Result.success(null))
+                            }
+                        }
+                        .addOnFailureListener { e ->
+                            continuation.resume(Result.failure(e))
+                        }
                 }
             }
             .addOnFailureListener { e ->
@@ -65,22 +95,49 @@ class SubmissionRepository {
             val batch = firestore.batch()
             val subDocRef = submissionsCollection.document()
             val submissionId = subDocRef.id
+            val resultDocRef = resultsCollection.document(submissionId)
             val now = Timestamp.now()
+
+            val initialStatus = if (submission.shortQuestionTotalMarks > 0) "PENDING" else "COMPLETED"
 
             val finalSubmission = submission.copy(
                 id = submissionId,
                 studentId = currentUser.uid,
+                status = initialStatus,
+                submittedAt = now
+            )
+
+            val resultObj = AppResult(
+                resultId = submissionId,
+                id = submissionId,
+                studentId = currentUser.uid,
+                chapterId = submission.chapterId,
+                chapterName = submission.chapterName,
+                totalQuestions = submission.totalQuestions,
+                mcqQuestions = submission.totalQuestions - (if (submission.shortQuestionTotalMarks > 0) 1 else 0),
+                shortQuestions = if (submission.shortQuestionTotalMarks > 0) 1 else 0,
+                mcqMarks = submission.mcqTotalMarks,
+                shortMarks = submission.shortQuestionTotalMarks,
+                totalMarks = submission.totalMarks,
+                obtainedMarks = submission.mcqObtainedMarks,
+                pendingMarks = submission.shortQuestionTotalMarks,
+                status = initialStatus,
                 submittedAt = now
             )
 
             batch.set(subDocRef, finalSubmission)
+            batch.set(resultDocRef, resultObj)
 
             answers.forEach { ans ->
                 val ansDocRef = studentAnswersCollection.document()
+                val ansId = ansDocRef.id
+                val isShort = ans.questionType.equals("SHORT", ignoreCase = true) || ans.questionType.equals("short", ignoreCase = true)
                 val finalAns = ans.copy(
-                    id = ansDocRef.id,
+                    id = ansId,
+                    answerId = ansId,
                     submissionId = submissionId,
                     studentId = currentUser.uid,
+                    status = if (isShort) "PENDING" else "REVIEWED",
                     submittedAt = now
                 )
                 batch.set(ansDocRef, finalAns)
@@ -88,7 +145,7 @@ class SubmissionRepository {
 
             batch.commit()
                 .addOnSuccessListener {
-                    Log.d("SubmissionDebug", "Atomic batch commit success for submissionId: $submissionId")
+                    Log.d("SubmissionDebug", "Atomic batch commit success for resultId/submissionId: $submissionId")
                     continuation.resume(Result.success(submissionId))
                 }
                 .addOnFailureListener { e ->
@@ -102,24 +159,76 @@ class SubmissionRepository {
     }
 
     suspend fun getStudentResult(submissionId: String): Result<ExamResult?> = suspendCoroutine { continuation ->
-        submissionsCollection.document(submissionId).get()
-            .addOnSuccessListener { document ->
-                val res = document.toObject(ExamResult::class.java)?.copy(id = document.id)
-                continuation.resume(Result.success(res))
+        resultsCollection.document(submissionId).get()
+            .addOnSuccessListener { resultDoc ->
+                if (resultDoc.exists()) {
+                    val appRes = resultDoc.toObject(AppResult::class.java)
+                    if (appRes != null) {
+                        val mapped = ExamResult(
+                            id = appRes.effectiveResultId,
+                            studentId = appRes.studentId,
+                            chapterId = appRes.chapterId,
+                            chapterName = appRes.chapterName,
+                            totalQuestions = appRes.totalQuestions,
+                            totalMarks = appRes.totalMarks,
+                            mcqTotalMarks = appRes.mcqMarks,
+                            mcqObtainedMarks = appRes.obtainedMarks - (appRes.totalMarks - appRes.mcqMarks - appRes.pendingMarks).coerceAtLeast(0),
+                            shortQuestionTotalMarks = appRes.shortMarks,
+                            shortQuestionObtainedMarks = appRes.shortMarks - appRes.pendingMarks,
+                            obtainedMarks = appRes.obtainedMarks,
+                            status = appRes.status,
+                            submittedAt = appRes.submittedAt
+                        )
+                        continuation.resume(Result.success(mapped))
+                        return@addOnSuccessListener
+                    }
+                }
+                submissionsCollection.document(submissionId).get()
+                    .addOnSuccessListener { document ->
+                        val res = document.toObject(ExamResult::class.java)?.copy(id = document.id)
+                        continuation.resume(Result.success(res))
+                    }
+                    .addOnFailureListener { e ->
+                        continuation.resume(Result.failure(e))
+                    }
             }
-            .addOnFailureListener { e ->
-                continuation.resume(Result.failure(e))
+            .addOnFailureListener {
+                submissionsCollection.document(submissionId).get()
+                    .addOnSuccessListener { document ->
+                        val res = document.toObject(ExamResult::class.java)?.copy(id = document.id)
+                        continuation.resume(Result.success(res))
+                    }
+                    .addOnFailureListener { e ->
+                        continuation.resume(Result.failure(e))
+                    }
             }
     }
 
     suspend fun getStudentSubmissions(studentId: String): Result<List<ExamResult>> = suspendCoroutine { continuation ->
-        submissionsCollection
+        resultsCollection
             .whereEqualTo("studentId", studentId)
             .get()
             .addOnSuccessListener { querySnapshot ->
                 try {
                     val list = querySnapshot.documents.mapNotNull { doc ->
-                        doc.toObject(ExamResult::class.java)?.copy(id = doc.id)
+                        val appRes = doc.toObject(AppResult::class.java)
+                        if (appRes != null) {
+                            ExamResult(
+                                id = appRes.effectiveResultId,
+                                studentId = appRes.studentId,
+                                chapterId = appRes.chapterId,
+                                chapterName = appRes.chapterName,
+                                totalQuestions = appRes.totalQuestions,
+                                totalMarks = appRes.totalMarks,
+                                mcqTotalMarks = appRes.mcqMarks,
+                                mcqObtainedMarks = appRes.obtainedMarks - (appRes.totalMarks - appRes.mcqMarks - appRes.pendingMarks).coerceAtLeast(0),
+                                shortQuestionTotalMarks = appRes.shortMarks,
+                                shortQuestionObtainedMarks = appRes.shortMarks - appRes.pendingMarks,
+                                obtainedMarks = appRes.obtainedMarks,
+                                status = appRes.status,
+                                submittedAt = appRes.submittedAt
+                            )
+                        } else null
                     }
                     continuation.resume(Result.success(list))
                 } catch (e: Exception) {
@@ -132,7 +241,7 @@ class SubmissionRepository {
     }
 
     fun getStudentSubmissionsRealtime(studentId: String): Flow<Result<List<ExamResult>>> = callbackFlow {
-        val listener = submissionsCollection
+        val listener = resultsCollection
             .whereEqualTo("studentId", studentId)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
@@ -142,7 +251,24 @@ class SubmissionRepository {
                 if (snapshot != null) {
                     try {
                         val list = snapshot.documents.mapNotNull { doc ->
-                            doc.toObject(ExamResult::class.java)?.copy(id = doc.id)
+                            val appRes = doc.toObject(AppResult::class.java)
+                            if (appRes != null) {
+                                ExamResult(
+                                    id = appRes.effectiveResultId,
+                                    studentId = appRes.studentId,
+                                    chapterId = appRes.chapterId,
+                                    chapterName = appRes.chapterName,
+                                    totalQuestions = appRes.totalQuestions,
+                                    totalMarks = appRes.totalMarks,
+                                    mcqTotalMarks = appRes.mcqMarks,
+                                    mcqObtainedMarks = appRes.obtainedMarks - (appRes.totalMarks - appRes.mcqMarks - appRes.pendingMarks).coerceAtLeast(0),
+                                    shortQuestionTotalMarks = appRes.shortMarks,
+                                    shortQuestionObtainedMarks = appRes.shortMarks - appRes.pendingMarks,
+                                    obtainedMarks = appRes.obtainedMarks,
+                                    status = appRes.status,
+                                    submittedAt = appRes.submittedAt
+                                )
+                            } else null
                         }
                         trySend(Result.success(list))
                     } catch (e: Exception) {
@@ -153,10 +279,9 @@ class SubmissionRepository {
         awaitClose { listener.remove() }
     }
 
-    // --- STEP 8 TEACHER EVALUATION EXTENSIONS ---
+    // --- TEACHER EVALUATION EXTENSIONS ---
 
     suspend fun getSubmissionsForChapter(chapterId: String): Result<List<ExamResult>> = suspendCoroutine { continuation ->
-        Log.d("TEACHER_ANSWER_DEBUG", "getSubmissionsForChapter query for chapterId: $chapterId")
         submissionsCollection
             .whereEqualTo("chapterId", chapterId)
             .get()
@@ -165,21 +290,17 @@ class SubmissionRepository {
                     val list = querySnapshot.documents.mapNotNull { doc ->
                         doc.toObject(ExamResult::class.java)?.copy(id = doc.id)
                     }
-                    Log.d("TEACHER_ANSWER_DEBUG", "getSubmissionsForChapter count: ${list.size}")
                     continuation.resume(Result.success(list))
                 } catch (e: Exception) {
-                    Log.e("TEACHER_ANSWER_DEBUG", "getSubmissionsForChapter error", e)
                     continuation.resume(Result.failure(e))
                 }
             }
             .addOnFailureListener { e ->
-                Log.e("TEACHER_ANSWER_DEBUG", "getSubmissionsForChapter failure", e)
                 continuation.resume(Result.failure(e))
             }
     }
 
     suspend fun getStudentAnswersForSubmission(submissionId: String): Result<List<StudentAnswer>> = suspendCoroutine { continuation ->
-        Log.d("TEACHER_ANSWER_DEBUG", "getStudentAnswersForSubmission query for submissionId: $submissionId")
         studentAnswersCollection
             .whereEqualTo("submissionId", submissionId)
             .get()
@@ -188,15 +309,12 @@ class SubmissionRepository {
                     val list = querySnapshot.documents.mapNotNull { doc ->
                         doc.toObject(StudentAnswer::class.java)?.copy(id = doc.id)
                     }
-                    Log.d("TEACHER_ANSWER_DEBUG", "getStudentAnswersForSubmission count: ${list.size}")
                     continuation.resume(Result.success(list))
                 } catch (e: Exception) {
-                    Log.e("TEACHER_ANSWER_DEBUG", "getStudentAnswersForSubmission error", e)
                     continuation.resume(Result.failure(e))
                 }
             }
             .addOnFailureListener { e ->
-                Log.e("TEACHER_ANSWER_DEBUG", "getStudentAnswersForSubmission failure", e)
                 continuation.resume(Result.failure(e))
             }
     }
@@ -226,35 +344,59 @@ class SubmissionRepository {
         isFullyEvaluated: Boolean
     ): Result<Unit> = suspendCoroutine { continuation ->
         try {
-            Log.d("TEACHER_ANSWER_DEBUG", "saveEvaluation saving for submissionId: $submissionId, shortObtained: $shortQuestionObtainedMarks, totalObtained: $totalObtainedMarks, fullyEvaluated: $isFullyEvaluated")
+            val teacherUid = auth.currentUser?.uid ?: ""
+            val now = Timestamp.now()
             val batch = firestore.batch()
 
             answers.forEach { ans ->
-                if (ans.id.isNotEmpty()) {
-                    val docRef = studentAnswersCollection.document(ans.id)
-                    batch.set(docRef, ans)
+                val ansDocId = ans.id.ifEmpty { ans.answerId }
+                if (ansDocId.isNotEmpty()) {
+                    val isShort = ans.questionType.equals("SHORT", ignoreCase = true) || ans.questionType.equals("short", ignoreCase = true)
+                    val updatedAns = ans.copy(
+                        id = ansDocId,
+                        answerId = ansDocId,
+                        status = if (isShort) "REVIEWED" else ans.status,
+                        reviewedBy = teacherUid,
+                        reviewedAt = now
+                    )
+                    val docRef = studentAnswersCollection.document(ansDocId)
+                    batch.set(docRef, updatedAns)
                 }
             }
 
             val subDocRef = submissionsCollection.document(submissionId)
+            val resultDocRef = resultsCollection.document(submissionId)
+
+            val newStatus = if (isFullyEvaluated) "COMPLETED" else "PENDING"
+            val totalShortPossible = answers.filter {
+                it.questionType.equals("SHORT", ignoreCase = true) || it.questionType.equals("short", ignoreCase = true)
+            }.sumOf { it.marks }
+
+            val newPendingMarks = (totalShortPossible - shortQuestionObtainedMarks).coerceAtLeast(0)
+
             val updates = mapOf(
                 "shortQuestionObtainedMarks" to shortQuestionObtainedMarks,
                 "obtainedMarks" to totalObtainedMarks,
-                "status" to if (isFullyEvaluated) "Completed" else "Pending Teacher Evaluation"
+                "status" to newStatus
             )
             batch.update(subDocRef, updates)
 
+            val resultUpdates = mapOf(
+                "obtainedMarks" to totalObtainedMarks,
+                "pendingMarks" to newPendingMarks,
+                "shortMarks" to totalShortPossible,
+                "status" to newStatus
+            )
+            batch.update(resultDocRef, resultUpdates)
+
             batch.commit()
                 .addOnSuccessListener {
-                    Log.d("TEACHER_ANSWER_DEBUG", "saveEvaluation batch commit SUCCESS for submissionId: $submissionId")
                     continuation.resume(Result.success(Unit))
                 }
                 .addOnFailureListener { e ->
-                    Log.e("TEACHER_ANSWER_DEBUG", "saveEvaluation batch commit FAILURE for submissionId: $submissionId", e)
                     continuation.resume(Result.failure(e))
                 }
         } catch (e: Exception) {
-            Log.e("TEACHER_ANSWER_DEBUG", "saveEvaluation exception", e)
             continuation.resume(Result.failure(e))
         }
     }

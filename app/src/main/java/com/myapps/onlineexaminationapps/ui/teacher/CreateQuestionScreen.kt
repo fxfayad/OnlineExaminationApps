@@ -34,8 +34,9 @@ class CreateQuestionViewModel : ViewModel() {
     var selectedChapter by mutableStateOf<Chapter?>(null)
     var isChaptersLoading by mutableStateOf(true)
 
+    var editingQuestionId by mutableStateOf<String?>(null)
     var questionText by mutableStateOf("")
-    var type by mutableStateOf("mcq") // "mcq" or "short"
+    var questionType by mutableStateOf("MCQ") // "MCQ" or "SHORT"
 
     // MCQ fields
     var optionA by mutableStateOf("")
@@ -43,6 +44,9 @@ class CreateQuestionViewModel : ViewModel() {
     var optionC by mutableStateOf("")
     var optionD by mutableStateOf("")
     var selectedCorrectOptionIndex by mutableStateOf<Int?>(null) // 0 for A, 1 for B, 2 for C, 3 for D
+
+    // Short Question field
+    var expectedAnswer by mutableStateOf("")
 
     // Common field
     var marksText by mutableStateOf("1")
@@ -52,23 +56,73 @@ class CreateQuestionViewModel : ViewModel() {
     var successMessage by mutableStateOf<String?>(null)
 
     fun loadTeacherChapters(preselectedChapterId: String? = null) {
-        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user == null) {
+            isChaptersLoading = false
+            errorMessage = "User not logged in."
+            return
+        }
+
         isChaptersLoading = true
         viewModelScope.launch {
-            val result = chapterRepository.getTeacherChapters(uid)
+            val result = chapterRepository.getTeacherChapters(user.uid)
             isChaptersLoading = false
             if (result.isSuccess) {
                 teacherChapters = result.getOrNull() ?: emptyList()
                 if (preselectedChapterId != null) {
-                    selectedChapter = teacherChapters.find { it.id == preselectedChapterId }
+                    selectedChapter = teacherChapters.find { it.effectiveId == preselectedChapterId }
                 } else if (teacherChapters.isNotEmpty() && selectedChapter == null) {
                     selectedChapter = teacherChapters.first()
+                }
+            } else {
+                errorMessage = result.exceptionOrNull()?.message ?: "Failed to load chapters."
+            }
+        }
+    }
+
+    fun loadQuestion(questionId: String, preselectedChapterId: String? = null) {
+        editingQuestionId = questionId
+        isLoading = true
+        viewModelScope.launch {
+            val user = FirebaseAuth.getInstance().currentUser
+            if (user != null && teacherChapters.isEmpty()) {
+                val cRes = chapterRepository.getTeacherChapters(user.uid)
+                if (cRes.isSuccess) {
+                    teacherChapters = cRes.getOrNull() ?: emptyList()
+                }
+            }
+
+            val qRes = questionRepository.getQuestionById(questionId)
+            isLoading = false
+            if (qRes.isSuccess) {
+                val q = qRes.getOrNull()
+                if (q != null) {
+                    questionText = q.effectiveQuestionText
+                    questionType = if (q.isMcq) "MCQ" else "SHORT"
+                    optionA = q.effectiveOptionA
+                    optionB = q.effectiveOptionB
+                    optionC = q.effectiveOptionC
+                    optionD = q.effectiveOptionD
+
+                    val opts = listOf(optionA, optionB, optionC, optionD)
+                    val matchIdx = opts.indexOf(q.correctAnswer)
+                    selectedCorrectOptionIndex = if (matchIdx >= 0) matchIdx else 0
+
+                    expectedAnswer = q.effectiveAnswer
+                    marksText = q.marks.toString()
+                    selectedChapter = teacherChapters.find { it.effectiveId == q.chapterId } ?: selectedChapter
                 }
             }
         }
     }
 
     fun saveQuestion(onSuccess: () -> Unit) {
+        val currentUser = FirebaseAuth.getInstance().currentUser
+        if (currentUser == null) {
+            errorMessage = "User not authenticated. Please sign in."
+            return
+        }
+
         val chapter = selectedChapter
         if (chapter == null) {
             errorMessage = "Please select a chapter."
@@ -77,27 +131,29 @@ class CreateQuestionViewModel : ViewModel() {
 
         val trimmedQuestion = questionText.trim()
         if (trimmedQuestion.isEmpty()) {
-            errorMessage = "Question cannot be empty."
+            errorMessage = "Question text cannot be empty."
             return
         }
 
         val marksInt = marksText.trim().toIntOrNull()
         if (marksInt == null || marksInt <= 0) {
-            errorMessage = "Marks must be greater than 0."
+            errorMessage = "Marks must be a valid number greater than 0."
             return
         }
 
+        val isMcq = questionType.equals("MCQ", ignoreCase = true)
         val optionsList = mutableListOf<String>()
         var correctAnswerStr = ""
+        var expectedAnswerStr = ""
 
-        if (type == "mcq") {
+        if (isMcq) {
             val a = optionA.trim()
             val b = optionB.trim()
             val c = optionC.trim()
             val d = optionD.trim()
 
             if (a.isEmpty() || b.isEmpty() || c.isEmpty() || d.isEmpty()) {
-                errorMessage = "Please enter all four options."
+                errorMessage = "All four options (A, B, C, D) are required for MCQ."
                 return
             }
 
@@ -105,47 +161,66 @@ class CreateQuestionViewModel : ViewModel() {
 
             val correctIdx = selectedCorrectOptionIndex
             if (correctIdx == null || correctIdx !in 0..3) {
-                errorMessage = "Please select the correct answer."
+                errorMessage = "Please select the correct answer for the MCQ."
                 return
             }
             correctAnswerStr = optionsList[correctIdx]
-        }
-
-        val currentUser = FirebaseAuth.getInstance().currentUser
-        if (currentUser == null) {
-            errorMessage = "User not logged in."
-            return
+        } else {
+            expectedAnswerStr = expectedAnswer.trim()
+            if (expectedAnswerStr.isEmpty()) {
+                errorMessage = "Expected answer is required for short questions."
+                return
+            }
         }
 
         isLoading = true
         errorMessage = null
 
+        val currentId = editingQuestionId ?: ""
+
         val question = Question(
-            chapterId = chapter.id,
+            id = currentId,
+            questionId = currentId,
+            chapterId = chapter.effectiveId,
+            teacherId = currentUser.uid,
+            createdBy = currentUser.uid,
+            questionText = trimmedQuestion,
             question = trimmedQuestion,
-            type = type,
+            questionType = if (isMcq) "MCQ" else "SHORT",
+            type = if (isMcq) "mcq" else "short",
+            optionA = if (isMcq) optionsList.getOrElse(0) { "" } else "",
+            optionB = if (isMcq) optionsList.getOrElse(1) { "" } else "",
+            optionC = if (isMcq) optionsList.getOrElse(2) { "" } else "",
+            optionD = if (isMcq) optionsList.getOrElse(3) { "" } else "",
             options = optionsList,
             correctAnswer = correctAnswerStr,
-            marks = marksInt,
-            createdBy = currentUser.uid
+            expectedAnswer = expectedAnswerStr,
+            answer = if (isMcq) correctAnswerStr else expectedAnswerStr,
+            marks = marksInt
         )
 
         viewModelScope.launch {
-            val result = questionRepository.createQuestion(question)
+            val result = if (editingQuestionId.isNullOrEmpty()) {
+                questionRepository.createQuestion(question)
+            } else {
+                questionRepository.updateQuestion(question)
+            }
             isLoading = false
             if (result.isSuccess) {
-                successMessage = "Question created successfully"
-                // Clear form fields
+                successMessage = if (editingQuestionId.isNullOrEmpty()) "Question created successfully!" else "Question updated successfully!"
+                // Clear form
                 questionText = ""
                 optionA = ""
                 optionB = ""
                 optionC = ""
                 optionD = ""
                 selectedCorrectOptionIndex = null
-                marksText = if (type == "mcq") "1" else "5"
+                expectedAnswer = ""
+                marksText = if (isMcq) "1" else "5"
+                editingQuestionId = null
                 onSuccess()
             } else {
-                errorMessage = result.exceptionOrNull()?.message ?: "Failed to save question."
+                errorMessage = result.exceptionOrNull()?.message ?: "Failed to save question due to Firestore or network error."
             }
         }
     }
@@ -155,16 +230,20 @@ class CreateQuestionViewModel : ViewModel() {
 @Composable
 fun CreateQuestionScreen(
     preselectedChapterId: String? = null,
+    questionId: String? = null,
     onBackClick: () -> Unit,
-    onCreateChapterClick: () -> Unit,
-    onQuestionSaved: () -> Unit,
+    onCreateChapterClick: () -> Unit = {},
+    onQuestionSaved: () -> Unit = {},
     viewModel: CreateQuestionViewModel = viewModel()
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
 
-    LaunchedEffect(preselectedChapterId) {
+    LaunchedEffect(preselectedChapterId, questionId) {
         viewModel.loadTeacherChapters(preselectedChapterId)
+        if (!questionId.isNullOrEmpty()) {
+            viewModel.loadQuestion(questionId, preselectedChapterId)
+        }
     }
 
     LaunchedEffect(viewModel.successMessage) {
@@ -176,7 +255,7 @@ fun CreateQuestionScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Create Question") },
+                title = { Text(if (questionId.isNullOrEmpty()) "Create Question" else "Edit Question") },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -237,7 +316,7 @@ fun CreateQuestionScreen(
                     onExpandedChange = { dropdownExpanded = !dropdownExpanded }
                 ) {
                     OutlinedTextField(
-                        value = viewModel.selectedChapter?.name ?: "Select Chapter",
+                        value = viewModel.selectedChapter?.displayTitle ?: "Select Chapter",
                         onValueChange = {},
                         readOnly = true,
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownExpanded) },
@@ -252,7 +331,7 @@ fun CreateQuestionScreen(
                     ) {
                         viewModel.teacherChapters.forEach { chapter ->
                             DropdownMenuItem(
-                                text = { Text(chapter.name) },
+                                text = { Text(chapter.displayTitle) },
                                 onClick = {
                                     viewModel.selectedChapter = chapter
                                     dropdownExpanded = false
@@ -278,18 +357,18 @@ fun CreateQuestionScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 FilterChip(
-                    selected = viewModel.type == "mcq",
+                    selected = viewModel.questionType.equals("MCQ", ignoreCase = true),
                     onClick = {
-                        viewModel.type = "mcq"
+                        viewModel.questionType = "MCQ"
                         if (viewModel.marksText == "5") viewModel.marksText = "1"
                     },
                     label = { Text("MCQ") },
                     modifier = Modifier.weight(1f)
                 )
                 FilterChip(
-                    selected = viewModel.type == "short",
+                    selected = viewModel.questionType.equals("SHORT", ignoreCase = true),
                     onClick = {
-                        viewModel.type = "short"
+                        viewModel.questionType = "SHORT"
                         if (viewModel.marksText == "1") viewModel.marksText = "5"
                     },
                     label = { Text("Short Question") },
@@ -299,15 +378,15 @@ fun CreateQuestionScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Question Text Input
+            // 3. Question Text Input
             OutlinedTextField(
                 value = viewModel.questionText,
                 onValueChange = {
                     viewModel.questionText = it
                     if (viewModel.errorMessage != null) viewModel.errorMessage = null
                 },
-                label = { Text("Question") },
-                placeholder = { Text("Enter question") },
+                label = { Text("Question Text") },
+                placeholder = { Text("Enter question prompt") },
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 2,
                 maxLines = 4,
@@ -316,8 +395,8 @@ fun CreateQuestionScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 3. Type-Specific Form
-            if (viewModel.type == "mcq") {
+            // 4. Type-Specific Form
+            if (viewModel.questionType.equals("MCQ", ignoreCase = true)) {
                 OutlinedTextField(
                     value = viewModel.optionA,
                     onValueChange = { viewModel.optionA = it },
@@ -399,11 +478,26 @@ fun CreateQuestionScreen(
                         )
                     }
                 }
+            } else {
+                // SHORT Question: Show Expected Answer input
+                OutlinedTextField(
+                    value = viewModel.expectedAnswer,
+                    onValueChange = {
+                        viewModel.expectedAnswer = it
+                        if (viewModel.errorMessage != null) viewModel.errorMessage = null
+                    },
+                    label = { Text("Expected Answer") },
+                    placeholder = { Text("Enter expected answer or sample solution") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
+                    maxLines = 5,
+                    enabled = !viewModel.isLoading
+                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Marks
+            // 5. Marks
             OutlinedTextField(
                 value = viewModel.marksText,
                 onValueChange = { viewModel.marksText = it },
@@ -418,13 +512,14 @@ fun CreateQuestionScreen(
                 Text(
                     text = viewModel.errorMessage!!,
                     color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 12.dp)
+                    modifier = Modifier.padding(top = 12.dp),
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Save Button
+            // 6. Submit Button
             Button(
                 onClick = { viewModel.saveQuestion(onQuestionSaved) },
                 modifier = Modifier.fillMaxWidth(),
@@ -437,7 +532,7 @@ fun CreateQuestionScreen(
                         strokeWidth = 2.dp
                     )
                 } else {
-                    Text("Create Question")
+                    Text(if (questionId.isNullOrEmpty()) "Create Question" else "Save Changes")
                 }
             }
         }

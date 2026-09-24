@@ -8,11 +8,12 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.google.firebase.auth.FirebaseAuth
 import com.myapps.onlineexaminationapps.ui.SignUpChoiceScreen
+import com.myapps.onlineexaminationapps.ui.home.ChapterQuestionsScreen
 import com.myapps.onlineexaminationapps.ui.home.ResultScreen
 import com.myapps.onlineexaminationapps.ui.home.ReviewAnswersScreen
 import com.myapps.onlineexaminationapps.ui.home.StudentChapterScreen
+import com.myapps.onlineexaminationapps.ui.home.StudentDashboardScreen
 import com.myapps.onlineexaminationapps.ui.home.StudentExamViewModel
-import com.myapps.onlineexaminationapps.ui.home.StudentHomeScreen
 import com.myapps.onlineexaminationapps.ui.home.StudentQuestionsScreen
 import com.myapps.onlineexaminationapps.ui.location.LocationPermissionScreen
 import com.myapps.onlineexaminationapps.ui.login.LoginScreen
@@ -26,12 +27,15 @@ import com.myapps.onlineexaminationapps.ui.teacher.TeacherAnalyticsScreen
 import com.myapps.onlineexaminationapps.ui.teacher.TeacherDashboardScreen
 import com.myapps.onlineexaminationapps.ui.teacher.TeacherStudentAnswerScreen
 import com.myapps.onlineexaminationapps.ui.teacher.TeacherSubmissionDetailScreen
+import androidx.compose.ui.platform.LocalContext
+import com.myapps.onlineexaminationapps.ui.location.getPostLoginDestination
 import com.myapps.onlineexaminationapps.ui.teacher.TeacherSubmissionListScreen
 
 @Composable
 fun NavGraph() {
 
     val navController = rememberNavController()
+    val context = LocalContext.current
 
     NavHost(
         navController = navController,
@@ -42,7 +46,7 @@ fun NavGraph() {
         composable("splash") {
             SplashScreen(
                 onAuthenticated = { role ->
-                    navController.navigate("request_location/$role") {
+                    navController.navigate(getPostLoginDestination(context, role)) {
                         popUpTo("splash") { inclusive = true }
                     }
                 },
@@ -58,7 +62,7 @@ fun NavGraph() {
         composable("login") {
             LoginScreen(
                 onLoginSuccess = { role ->
-                    navController.navigate("request_location/$role") {
+                    navController.navigate(getPostLoginDestination(context, role)) {
                         popUpTo("login") {
                             inclusive = true
                         }
@@ -90,7 +94,7 @@ fun NavGraph() {
             SignUpScreen(
                 isTeacher = false,
                 onSignUpSuccess = {
-                    navController.navigate("request_location/student") {
+                    navController.navigate(getPostLoginDestination(context, "student")) {
                         popUpTo("login") { inclusive = true }
                     }
                 },
@@ -108,7 +112,7 @@ fun NavGraph() {
             SignUpScreen(
                 isTeacher = true,
                 onSignUpSuccess = {
-                    navController.navigate("request_location/teacher") {
+                    navController.navigate(getPostLoginDestination(context, "teacher")) {
                         popUpTo("login") { inclusive = true }
                     }
                 },
@@ -127,7 +131,7 @@ fun NavGraph() {
             LocationPermissionScreen(
                 role = role,
                 onPermissionGranted = {
-                    val destination = if (role == "teacher") "teacher_dashboard" else "student_home"
+                    val destination = if (role == "teacher") "teacher_dashboard" else "student_dashboard"
                     navController.navigate(destination) {
                         popUpTo("request_location/$role") { inclusive = true }
                     }
@@ -135,11 +139,29 @@ fun NavGraph() {
             )
         }
 
-        // Student Dashboard (routes: "student_home" & "home")
-        composable("student_home") {
-            StudentHomeScreen(
+        // Student Dashboard Route (student_dashboard)
+        composable("student_dashboard") {
+            StudentDashboardScreen(
                 onChapterClick = { chapterId ->
-                    navController.navigate("student_chapter/$chapterId")
+                    navController.navigate("chapter_questions/$chapterId")
+                },
+                onResultClick = { submissionId ->
+                    navController.navigate("result/$submissionId")
+                },
+                onLogoutClick = {
+                    FirebaseAuth.getInstance().signOut()
+                    navController.navigate("login") {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        // Student Home Route (student_home & home aliases)
+        composable("student_home") {
+            StudentDashboardScreen(
+                onChapterClick = { chapterId ->
+                    navController.navigate("chapter_questions/$chapterId")
                 },
                 onResultClick = { submissionId ->
                     navController.navigate("result/$submissionId")
@@ -154,9 +176,9 @@ fun NavGraph() {
         }
 
         composable("home") {
-            StudentHomeScreen(
+            StudentDashboardScreen(
                 onChapterClick = { chapterId ->
-                    navController.navigate("student_chapter/$chapterId")
+                    navController.navigate("chapter_questions/$chapterId")
                 },
                 onResultClick = { submissionId ->
                     navController.navigate("result/$submissionId")
@@ -170,7 +192,21 @@ fun NavGraph() {
             )
         }
 
-        // Student Chapter Screen
+        // Chapter Questions Screen (chapter_questions/{chapterId})
+        composable("chapter_questions/{chapterId}") { backStackEntry ->
+            val chapterId = backStackEntry.arguments?.getString("chapterId") ?: ""
+            ChapterQuestionsScreen(
+                chapterId = chapterId,
+                onBackClick = { navController.popBackStack() },
+                onSubmitSuccess = { submissionId ->
+                    navController.navigate("result/$submissionId") {
+                        popUpTo("student_dashboard") { inclusive = false }
+                    }
+                }
+            )
+        }
+
+        // Student Chapter Screen (student_chapter/{chapterId} alias)
         composable("student_chapter/{chapterId}") { backStackEntry ->
             val chapterId = backStackEntry.arguments?.getString("chapterId") ?: ""
             val parentEntry = remember(backStackEntry) { backStackEntry }
@@ -197,7 +233,7 @@ fun NavGraph() {
                 onBackClick = { navController.popBackStack() },
                 onSubmitSuccess = { submissionId ->
                     navController.navigate("result/$submissionId") {
-                        popUpTo("student_home") { inclusive = false }
+                        popUpTo("student_dashboard") { inclusive = false }
                     }
                 }
             )
@@ -210,7 +246,7 @@ fun NavGraph() {
                 submissionId = submissionId,
                 onBackClick = { navController.popBackStack() },
                 onDashboardClick = {
-                    navController.popBackStack("student_home", inclusive = false)
+                    navController.popBackStack("student_dashboard", inclusive = false)
                 }
             )
         }
@@ -243,6 +279,9 @@ fun NavGraph() {
                 onChapterClick = { chapterId ->
                     navController.navigate("question_management/$chapterId")
                 },
+                onEditQuestionClick = { cId, qId ->
+                    navController.navigate("add_question/$cId?questionId=$qId")
+                },
                 onLogoutClick = {
                     FirebaseAuth.getInstance().signOut()
                     navController.navigate("login") {
@@ -269,6 +308,9 @@ fun NavGraph() {
                 },
                 onChapterClick = { chapterId ->
                     navController.navigate("question_management/$chapterId")
+                },
+                onEditQuestionClick = { cId, qId ->
+                    navController.navigate("add_question/$cId?questionId=$qId")
                 },
                 onLogoutClick = {
                     FirebaseAuth.getInstance().signOut()

@@ -9,6 +9,7 @@ fun TeacherHomeScreen(
     onViewStudentAnswersClick: () -> Unit = {},
     onAnalyticsClick: () -> Unit = {},
     onChapterClick: (String) -> Unit = {},
+    onEditQuestionClick: (String, String) -> Unit = { _, _ -> },
     onLogoutClick: () -> Unit = {}
 ) {
     TeacherDashboardScreen(
@@ -17,6 +18,7 @@ fun TeacherHomeScreen(
         onViewStudentAnswersClick = onViewStudentAnswersClick,
         onAnalyticsClick = onAnalyticsClick,
         onChapterClick = onChapterClick,
+        onEditQuestionClick = onEditQuestionClick,
         onLogoutClick = onLogoutClick
     )
 }

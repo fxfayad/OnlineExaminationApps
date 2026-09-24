@@ -29,6 +29,27 @@ fun isLocationPermissionGranted(context: Context): Boolean {
     return fine || coarse
 }
 
+fun markLocationPermissionHandled(context: Context) {
+    val prefs = context.getSharedPreferences("location_permission_prefs", Context.MODE_PRIVATE)
+    prefs.edit().putBoolean("permission_handled", true).apply()
+}
+
+fun isLocationPermissionHandled(context: Context): Boolean {
+    val prefs = context.getSharedPreferences("location_permission_prefs", Context.MODE_PRIVATE)
+    return prefs.getBoolean("permission_handled", false)
+}
+
+fun shouldSkipLocationScreen(context: Context): Boolean {
+    return isLocationPermissionGranted(context) || isLocationPermissionHandled(context)
+}
+
+fun getPostLoginDestination(context: Context, role: String): String {
+    if (shouldSkipLocationScreen(context)) {
+        return if (role.equals("teacher", ignoreCase = true)) "teacher_dashboard" else "student_dashboard"
+    }
+    return "request_location/$role"
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LocationPermissionScreen(
@@ -50,20 +71,22 @@ fun LocationPermissionScreen(
         hasRequestedPermission = true
         isPermissionGranted = granted
 
+        markLocationPermissionHandled(context)
+
         if (granted) {
             Log.d("LOCATION_PERMISSION_DEBUG", "Location permission GRANTED for UID: ${currentUser?.uid}, Role: $role")
-            onPermissionGranted()
         } else {
             Log.d("LOCATION_PERMISSION_DEBUG", "Location permission DENIED for UID: ${currentUser?.uid}, Role: $role")
         }
+        onPermissionGranted()
     }
 
     LaunchedEffect(Unit) {
         val uid = currentUser?.uid ?: "unknown"
-        Log.d("LOCATION_PERMISSION_DEBUG", "Login successful. UID: $uid, Role: $role")
+        Log.d("LOCATION_PERMISSION_DEBUG", "Checking location permission. UID: $uid, Role: $role")
 
-        if (isLocationPermissionGranted(context)) {
-            Log.d("LOCATION_PERMISSION_DEBUG", "Location permission status: ALREADY GRANTED for UID: $uid, Role: $role")
+        if (shouldSkipLocationScreen(context)) {
+            Log.d("LOCATION_PERMISSION_DEBUG", "Location permission ALREADY GRANTED or HANDLED for UID: $uid, Role: $role. Skipping request.")
             onPermissionGranted()
         } else {
             Log.d("LOCATION_PERMISSION_DEBUG", "Location permission status: MISSING. Launching system request for UID: $uid, Role: $role")
@@ -166,6 +189,7 @@ fun LocationPermissionScreen(
                         TextButton(
                             onClick = {
                                 Log.d("LOCATION_PERMISSION_DEBUG", "User selected Continue Without Location for UID: ${currentUser?.uid}")
+                                markLocationPermissionHandled(context)
                                 onPermissionGranted()
                             },
                             modifier = Modifier.fillMaxWidth()
