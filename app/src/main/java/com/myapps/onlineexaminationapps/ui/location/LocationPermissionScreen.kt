@@ -44,9 +44,7 @@ fun shouldSkipLocationScreen(context: Context): Boolean {
 }
 
 fun getPostLoginDestination(context: Context, role: String): String {
-    if (shouldSkipLocationScreen(context)) {
-        return if (role.equals("teacher", ignoreCase = true)) "teacher_dashboard" else "student_dashboard"
-    }
+    // Always navigate through location permission check every time user logs in
     return "request_location/$role"
 }
 
@@ -83,10 +81,10 @@ fun LocationPermissionScreen(
 
     LaunchedEffect(Unit) {
         val uid = currentUser?.uid ?: "unknown"
-        Log.d("LOCATION_PERMISSION_DEBUG", "Checking location permission. UID: $uid, Role: $role")
+        Log.d("LOCATION_PERMISSION_DEBUG", "Checking location permission on login. UID: $uid, Role: $role")
 
-        if (shouldSkipLocationScreen(context)) {
-            Log.d("LOCATION_PERMISSION_DEBUG", "Location permission ALREADY GRANTED or HANDLED for UID: $uid, Role: $role. Skipping request.")
+        if (isLocationPermissionGranted(context)) {
+            Log.d("LOCATION_PERMISSION_DEBUG", "Location permission ALREADY GRANTED for UID: $uid, Role: $role. Proceeding.")
             onPermissionGranted()
         } else {
             Log.d("LOCATION_PERMISSION_DEBUG", "Location permission status: MISSING. Launching system request for UID: $uid, Role: $role")
