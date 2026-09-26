@@ -28,6 +28,8 @@ import com.myapps.onlineexaminationapps.ui.teacher.TeacherDashboardScreen
 import com.myapps.onlineexaminationapps.ui.teacher.TeacherStudentAnswerScreen
 import com.myapps.onlineexaminationapps.ui.teacher.TeacherSubmissionDetailScreen
 import androidx.compose.ui.platform.LocalContext
+import com.myapps.onlineexaminationapps.ui.home.ChapterFeedScreen
+import com.myapps.onlineexaminationapps.ui.home.QuestionFeedScreen
 import com.myapps.onlineexaminationapps.ui.location.getPostLoginDestination
 import com.myapps.onlineexaminationapps.ui.teacher.TeacherSubmissionListScreen
 
@@ -148,6 +150,12 @@ fun NavGraph() {
                 onResultClick = { submissionId ->
                     navController.navigate("result/$submissionId")
                 },
+                onQuestionFeedClick = {
+                    navController.navigate("student_question_feed")
+                },
+                onChapterFeedClick = {
+                    navController.navigate("student_chapter_feed")
+                },
                 onLogoutClick = {
                     FirebaseAuth.getInstance().signOut()
                     navController.navigate("login") {
@@ -166,6 +174,12 @@ fun NavGraph() {
                 onResultClick = { submissionId ->
                     navController.navigate("result/$submissionId")
                 },
+                onQuestionFeedClick = {
+                    navController.navigate("student_question_feed")
+                },
+                onChapterFeedClick = {
+                    navController.navigate("student_chapter_feed")
+                },
                 onLogoutClick = {
                     FirebaseAuth.getInstance().signOut()
                     navController.navigate("login") {
@@ -183,11 +197,43 @@ fun NavGraph() {
                 onResultClick = { submissionId ->
                     navController.navigate("result/$submissionId")
                 },
+                onQuestionFeedClick = {
+                    navController.navigate("student_question_feed")
+                },
+                onChapterFeedClick = {
+                    navController.navigate("student_chapter_feed")
+                },
                 onLogoutClick = {
                     FirebaseAuth.getInstance().signOut()
                     navController.navigate("login") {
                         popUpTo(0) { inclusive = true }
                     }
+                }
+            )
+        }
+
+        // Student Question Feed Route
+        composable("student_question_feed") {
+            QuestionFeedScreen(
+                onBackClick = { navController.popBackStack() },
+                onChapterExamClick = { chapterId ->
+                    navController.navigate("chapter_questions/$chapterId")
+                },
+                onResultClick = { submissionId ->
+                    navController.navigate("result/$submissionId")
+                }
+            )
+        }
+
+        // Student Chapter Feed Route
+        composable("student_chapter_feed") {
+            ChapterFeedScreen(
+                onBackClick = { navController.popBackStack() },
+                onChapterClick = { chapterId ->
+                    navController.navigate("chapter_questions/$chapterId")
+                },
+                onResultClick = { submissionId ->
+                    navController.navigate("result/$submissionId")
                 }
             )
         }

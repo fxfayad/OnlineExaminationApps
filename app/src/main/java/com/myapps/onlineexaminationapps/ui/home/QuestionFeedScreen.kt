@@ -1,6 +1,5 @@
 package com.myapps.onlineexaminationapps.ui.home
 
-import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -10,7 +9,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -80,93 +78,6 @@ class QuestionFeedViewModel : ViewModel() {
     fun setAnswer(questionId: String, answer: String) {
         answersMap[questionId] = answer
     }
-
-    fun submitChapterAnswers(chapterId: String, onSuccess: (String) -> Unit, onFailure: (String) -> Unit) {
-        val user = FirebaseAuth.getInstance().currentUser
-        if (user == null) {
-            onFailure("User not authenticated.")
-            return
-        }
-
-        val chapterQuestions = questions.filter { it.chapterId == chapterId }
-        if (chapterQuestions.isEmpty()) {
-            onFailure("No questions found for this chapter.")
-            return
-        }
-
-        val unanswered = chapterQuestions.filter { (answersMap[it.effectiveId] ?: "").trim().isEmpty() }
-        if (unanswered.isNotEmpty()) {
-            onFailure("Please answer all questions for this chapter before submitting.")
-            return
-        }
-
-        isSubmitting = true
-        val chapTitle = chapterMap[chapterId] ?: "Chapter Exam"
-
-        viewModelScope.launch {
-            var mcqObtainedMarks = 0
-            val mcqs = chapterQuestions.filter { it.isMcq }
-            val shortQuestions = chapterQuestions.filter { !it.isMcq }
-
-            val mcqTotalMarks = mcqs.sumOf { it.marks }
-            val shortQuestionTotalMarks = shortQuestions.sumOf { it.marks }
-            val calcTotalMarks = chapterQuestions.sumOf { it.marks }
-
-            val studentAnswerList = chapterQuestions.map { q ->
-                val ans = (answersMap[q.effectiveId] ?: "").trim()
-                if (q.isMcq) {
-                    val isCorr = ans.equals(q.correctAnswer.trim(), ignoreCase = true)
-                    val obtained = if (isCorr) q.marks else 0
-                    if (isCorr) mcqObtainedMarks += q.marks
-                    StudentAnswer(
-                        chapterId = chapterId,
-                        questionId = q.effectiveId,
-                        answer = ans,
-                        questionType = "mcq",
-                        marks = q.marks,
-                        obtainedMarks = obtained,
-                        isCorrect = isCorr
-                    )
-                } else {
-                    StudentAnswer(
-                        chapterId = chapterId,
-                        questionId = q.effectiveId,
-                        answer = ans,
-                        questionType = "short",
-                        marks = q.marks,
-                        obtainedMarks = 0,
-                        isCorrect = null
-                    )
-                }
-            }
-
-            val status = if (shortQuestionTotalMarks > 0) "Pending Teacher Evaluation" else "Completed"
-
-            val submissionObj = ExamResult(
-                studentId = user.uid,
-                chapterId = chapterId,
-                chapterName = chapTitle,
-                totalQuestions = chapterQuestions.size,
-                totalMarks = calcTotalMarks,
-                mcqTotalMarks = mcqTotalMarks,
-                mcqObtainedMarks = mcqObtainedMarks,
-                shortQuestionTotalMarks = shortQuestionTotalMarks,
-                shortQuestionObtainedMarks = 0,
-                obtainedMarks = mcqObtainedMarks,
-                status = status
-            )
-
-            val submitResult = submissionRepository.submitExam(submissionObj, studentAnswerList)
-            isSubmitting = false
-
-            if (submitResult.isSuccess) {
-                val submissionId = submitResult.getOrNull() ?: ""
-                onSuccess(submissionId)
-            } else {
-                onFailure(submitResult.exceptionOrNull()?.message ?: "Failed to submit answers.")
-            }
-        }
-    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -177,8 +88,6 @@ fun QuestionFeedScreen(
     onResultClick: (String) -> Unit,
     viewModel: QuestionFeedViewModel = viewModel()
 ) {
-    val context = LocalContext.current
-
     LaunchedEffect(Unit) {
         viewModel.loadFeedData()
     }
@@ -266,7 +175,7 @@ fun QuestionFeedScreen(
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "Practice questions or click 'Open Chapter Exam' to submit full chapter tests.",
+                                    text = "Practice questions or click 'Open Exam' to submit full chapter tests.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
@@ -284,7 +193,7 @@ fun QuestionFeedScreen(
                             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
-                                // Chapter Name Header & Type Badge
+                                // 1. Chapter Title & Question Type Badge Row
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -294,11 +203,18 @@ fun QuestionFeedScreen(
                                         text = chapTitle,
                                         style = MaterialTheme.typography.labelLarge,
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.weight(1f)
                                     )
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     AssistChip(
                                         onClick = {},
-                                        label = { Text(if (question.isMcq) "MCQ" else "Short Question") },
+                                        label = {
+                                            Text(
+                                                text = if (question.isMcq) "MCQ" else "Short Question",
+                                                style = MaterialTheme.typography.labelSmall
+                                            )
+                                        },
                                         colors = AssistChipDefaults.assistChipColors(
                                             containerColor = MaterialTheme.colorScheme.secondaryContainer
                                         )
@@ -307,16 +223,16 @@ fun QuestionFeedScreen(
 
                                 Spacer(modifier = Modifier.height(8.dp))
 
-                                // Question Text
+                                // 2. Question Prompt
                                 Text(
                                     text = "Q${index + 1}: ${question.effectiveQuestionText}",
                                     style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.Bold
                                 )
 
                                 Spacer(modifier = Modifier.height(12.dp))
 
-                                // Options / Answer Input (Strictly hiding correct answer before submission)
+                                // 3. Options / Input (Strictly hiding correct answer before submission)
                                 if (question.isMcq) {
                                     val options = question.effectiveOptions
                                     options.forEachIndexed { optIndex, optionText ->
@@ -331,7 +247,7 @@ fun QuestionFeedScreen(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .padding(vertical = 4.dp)
+                                                    .padding(vertical = 2.dp)
                                             ) {
                                                 RadioButton(
                                                     selected = currentAns == optionText || currentAns == optionPrefix.trim().replace(".", ""),
@@ -364,7 +280,11 @@ fun QuestionFeedScreen(
 
                                 Spacer(modifier = Modifier.height(12.dp))
 
-                                // Bottom Action Row
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                // 4. Marks & Action Button Row
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -381,13 +301,13 @@ fun QuestionFeedScreen(
                                         OutlinedButton(
                                             onClick = { onResultClick(submission.id) }
                                         ) {
-                                            Text("View Exam Result")
+                                            Text("View Result", style = MaterialTheme.typography.labelLarge)
                                         }
                                     } else {
                                         Button(
                                             onClick = { onChapterExamClick(question.chapterId) }
                                         ) {
-                                            Text("Open Chapter Exam")
+                                            Text("Open Exam", style = MaterialTheme.typography.labelLarge)
                                         }
                                     }
                                 }
