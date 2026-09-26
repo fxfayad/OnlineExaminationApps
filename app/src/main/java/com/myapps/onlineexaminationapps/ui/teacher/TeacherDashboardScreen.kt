@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.Check
@@ -125,6 +126,7 @@ fun TeacherDashboardScreen(
     onCreateQuestionClick: () -> Unit = {},
     onViewStudentAnswersClick: () -> Unit = {},
     onAnalyticsClick: () -> Unit = {},
+    onChatClick: () -> Unit = {},
     onChapterClick: (String) -> Unit = {},
     onEditQuestionClick: (String, String) -> Unit = { _, _ -> },
     onLogoutClick: () -> Unit = {},
@@ -192,6 +194,9 @@ fun TeacherDashboardScreen(
             TopAppBar(
                 title = { Text("Teacher Dashboard") },
                 actions = {
+                    IconButton(onClick = onChatClick) {
+                        Icon(imageVector = Icons.AutoMirrored.Filled.Chat, contentDescription = "Chat with Students")
+                    }
                     IconButton(onClick = onLogoutClick) {
                         Icon(imageVector = Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Logout")
                     }
@@ -243,6 +248,20 @@ fun TeacherDashboardScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(vertical = 16.dp)
                 ) {
+                    // Chat Action Item
+                    item {
+                        Button(
+                            onClick = onChatClick,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer, contentColor = MaterialTheme.colorScheme.onTertiaryContainer),
+                            contentPadding = PaddingValues(vertical = 12.dp)
+                        ) {
+                            Icon(imageVector = Icons.AutoMirrored.Filled.Chat, contentDescription = null, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Chat with Students", fontWeight = FontWeight.Bold)
+                        }
+                    }
+
                     // Top Action Buttons
                     item {
                         Row(

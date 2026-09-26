@@ -1,0 +1,68 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isUser(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isUser(userId)
+                    && request.resource.data.uid == userId
+                    && request.resource.data.role in ['student', 'teacher'];
+      allow update: if isUser(userId)
+                    && request.resource.data.uid == userId
+                    && request.resource.data.role == resource.data.role; // Cannot change UID or Role
+      allow delete: if false;
+    }
+
+    // Chapters & Questions
+    match /chapters/{chapterId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /questions/{questionId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /submissions/{submissionId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.studentId == request.auth.uid;
+      allow update, delete: if isAuthenticated();
+    }
+
+    // Chats Collection
+    match /chats/{chatId} {
+      function isParticipant() {
+        return isAuthenticated() && request.auth.uid in resource.data.participants;
+      }
+
+      function willBeParticipant() {
+        return isAuthenticated() && request.auth.uid in request.resource.data.participants;
+      }
+
+      allow read: if isParticipant();
+      allow create: if willBeParticipant()
+                    && request.resource.data.participants.size() == 2;
+      allow update: if isParticipant()
+                    && request.resource.data.participants == resource.data.participants; // Cannot change participants list
+
+      // Messages Subcollection
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+        allow create: if isAuthenticated()
+                      && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
+                      && request.resource.data.senderId == request.auth.uid; // Must not forge senderId
+        allow update, delete: if false;
+      }
+    }
+  }
+}

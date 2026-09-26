@@ -32,6 +32,8 @@ import com.myapps.onlineexaminationapps.ui.home.ChapterFeedScreen
 import com.myapps.onlineexaminationapps.ui.home.QuestionFeedScreen
 import com.myapps.onlineexaminationapps.ui.location.getPostLoginDestination
 import com.myapps.onlineexaminationapps.ui.teacher.TeacherSubmissionListScreen
+import com.myapps.onlineexaminationapps.ui.chat.UserListScreen
+import com.myapps.onlineexaminationapps.ui.chat.ChatScreen
 
 @Composable
 fun NavGraph() {
@@ -156,6 +158,9 @@ fun NavGraph() {
                 onChapterFeedClick = {
                     navController.navigate("student_chapter_feed")
                 },
+                onChatClick = {
+                    navController.navigate("chat_users/student")
+                },
                 onLogoutClick = {
                     FirebaseAuth.getInstance().signOut()
                     navController.navigate("login") {
@@ -180,6 +185,9 @@ fun NavGraph() {
                 onChapterFeedClick = {
                     navController.navigate("student_chapter_feed")
                 },
+                onChatClick = {
+                    navController.navigate("chat_users/student")
+                },
                 onLogoutClick = {
                     FirebaseAuth.getInstance().signOut()
                     navController.navigate("login") {
@@ -202,6 +210,9 @@ fun NavGraph() {
                 },
                 onChapterFeedClick = {
                     navController.navigate("student_chapter_feed")
+                },
+                onChatClick = {
+                    navController.navigate("chat_users/student")
                 },
                 onLogoutClick = {
                     FirebaseAuth.getInstance().signOut()
@@ -326,6 +337,9 @@ fun NavGraph() {
                 onAnalyticsClick = {
                     navController.navigate("teacher_analytics")
                 },
+                onChatClick = {
+                    navController.navigate("chat_users/teacher")
+                },
                 onChapterClick = { chapterId ->
                     navController.navigate("question_management/$chapterId")
                 },
@@ -355,6 +369,9 @@ fun NavGraph() {
                 },
                 onAnalyticsClick = {
                     navController.navigate("teacher_analytics")
+                },
+                onChatClick = {
+                    navController.navigate("chat_users/teacher")
                 },
                 onChapterClick = { chapterId ->
                     navController.navigate("question_management/$chapterId")
@@ -527,6 +544,27 @@ fun NavGraph() {
                 onQuestionSaved = {
                     navController.popBackStack()
                 }
+            )
+        }
+
+        // Chat User List Route (chat_users/{role})
+        composable("chat_users/{role}") { backStackEntry ->
+            val role = backStackEntry.arguments?.getString("role") ?: "student"
+            UserListScreen(
+                userRole = role,
+                onBackClick = { navController.popBackStack() },
+                onUserClick = { targetUserId ->
+                    navController.navigate("chat_screen/$targetUserId")
+                }
+            )
+        }
+
+        // Private Chat Screen Route (chat_screen/{otherUserId})
+        composable("chat_screen/{otherUserId}") { backStackEntry ->
+            val otherUserId = backStackEntry.arguments?.getString("otherUserId") ?: ""
+            ChatScreen(
+                otherUserId = otherUserId,
+                onBackClick = { navController.popBackStack() }
             )
         }
     }
