@@ -120,7 +120,9 @@ class QuestionRepository {
         questionsCollection.whereEqualTo("chapterId", chapterId).get()
             .addOnSuccessListener { querySnapshot ->
                 try {
-                    val questions = querySnapshot.documents.mapNotNull { mapDocToQuestion(it) }
+                    val questions = querySnapshot.documents
+                        .mapNotNull { mapDocToQuestion(it) }
+                        .sortedBy { it.questionNumber }
                     continuation.resume(Result.success(questions))
                 } catch (e: Exception) {
                     continuation.resume(Result.failure(e))
@@ -141,7 +143,9 @@ class QuestionRepository {
                 }
                 if (snapshot != null) {
                     try {
-                        val questions = snapshot.documents.mapNotNull { mapDocToQuestion(it) }
+                        val questions = snapshot.documents
+                            .mapNotNull { mapDocToQuestion(it) }
+                            .sortedBy { it.questionNumber }
                         trySend(Result.success(questions))
                     } catch (e: Exception) {
                         trySend(Result.failure(e))
@@ -157,7 +161,8 @@ class QuestionRepository {
                 try {
                     val questions = querySnapshot.documents
                         .mapNotNull { mapDocToQuestion(it) }
-                        .filter { it.effectiveTeacherId == teacherUid }
+                        .filter { it.effectiveTeacherId == teacherUid || it.effectiveTeacherId == "system" || it.effectiveTeacherId.isEmpty() }
+                        .sortedWith(compareBy<Question> { it.chapterNumber }.thenBy { it.questionNumber })
                     continuation.resume(Result.success(questions))
                 } catch (e: Exception) {
                     continuation.resume(Result.failure(e))
@@ -179,7 +184,8 @@ class QuestionRepository {
                     try {
                         val questions = snapshot.documents
                             .mapNotNull { mapDocToQuestion(it) }
-                            .filter { it.effectiveTeacherId == teacherUid }
+                            .filter { it.effectiveTeacherId == teacherUid || it.effectiveTeacherId == "system" || it.effectiveTeacherId.isEmpty() }
+                            .sortedWith(compareBy<Question> { it.chapterNumber }.thenBy { it.questionNumber })
                         trySend(Result.success(questions))
                     } catch (e: Exception) {
                         trySend(Result.failure(e))

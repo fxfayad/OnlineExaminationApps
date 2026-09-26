@@ -225,7 +225,11 @@ fun NavGraph() {
         composable("review_answers/{chapterId}") { backStackEntry ->
             val chapterId = backStackEntry.arguments?.getString("chapterId") ?: ""
             val parentEntry = remember(backStackEntry) {
-                navController.getBackStackEntry("student_chapter/$chapterId")
+                try {
+                    navController.getBackStackEntry("student_chapter/$chapterId")
+                } catch (_: Exception) {
+                    backStackEntry
+                }
             }
             val examViewModel: StudentExamViewModel = viewModel(parentEntry)
             ReviewAnswersScreen(

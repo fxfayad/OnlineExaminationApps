@@ -57,4 +57,26 @@ data class Question(
 
     val effectiveOptions: List<String>
         get() = if (options.isNotEmpty()) options else listOf(effectiveOptionA, effectiveOptionB, effectiveOptionC, effectiveOptionD).filter { it.isNotEmpty() }
+
+    val chapterNumber: Int
+        get() {
+            val idMatch = Regex("""c_prog_q_(\d+)_""", RegexOption.IGNORE_CASE).find(effectiveId)
+            if (idMatch != null) {
+                return idMatch.groupValues[1].toIntOrNull() ?: Int.MAX_VALUE
+            }
+            val chMatch = Regex("""ch_(\d+)""", RegexOption.IGNORE_CASE).find(chapterId)
+            if (chMatch != null) {
+                return chMatch.groupValues[1].toIntOrNull() ?: Int.MAX_VALUE
+            }
+            return Int.MAX_VALUE
+        }
+
+    val questionNumber: Int
+        get() {
+            val idMatch = Regex("""c_prog_q_\d+_(\d+)""", RegexOption.IGNORE_CASE).find(effectiveId)
+            if (idMatch != null) {
+                return idMatch.groupValues[1].toIntOrNull() ?: Int.MAX_VALUE
+            }
+            return Int.MAX_VALUE
+        }
 }

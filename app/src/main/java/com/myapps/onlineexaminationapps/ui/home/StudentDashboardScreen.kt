@@ -18,6 +18,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.firebase.auth.FirebaseAuth
+import com.myapps.onlineexaminationapps.firebase.CProgrammingDataSeeder
 import com.myapps.onlineexaminationapps.firebase.ChapterRepository
 import com.myapps.onlineexaminationapps.firebase.QuestionRepository
 import com.myapps.onlineexaminationapps.firebase.SubmissionRepository
@@ -66,6 +67,9 @@ class StudentDashboardViewModel : ViewModel() {
         errorMessage = null
         chaptersJob?.cancel()
         resultsJob?.cancel()
+
+        // Seed 10 C Programming course chapters & short questions if not present
+        CProgrammingDataSeeder.seedCProgrammingCourse()
 
         // Realtime Firestore snapshot listener for Available Chapters
         chaptersJob = viewModelScope.launch {
@@ -228,17 +232,17 @@ fun StudentDashboardScreen(
                         }
                     }
 
-                    // Section 1: Pending Exams (Unanswered Chapters)
+                    // Section 1: Available Chapters (Displayed at beginning as clickable button/card-style items)
                     item {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Pending Exams (Unanswered)",
+                            text = "Available Chapters",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
                     }
 
-                    if (viewModel.pendingChapters.isEmpty()) {
+                    if (viewModel.chapters.isEmpty()) {
                         item {
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
@@ -251,15 +255,151 @@ fun StudentDashboardScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = "No pending exams! You have answered all available chapters.",
-                                        style = MaterialTheme.typography.bodyMedium,
+                                        text = "No chapter available",
+                                        style = MaterialTheme.typography.bodyLarge,
                                         color = MaterialTheme.colorScheme.outline
                                     )
                                 }
                             }
                         }
                     } else {
-                        items(viewModel.pendingChapters, key = { it.effectiveId }) { chapter ->
+                        items(viewModel.chapters, key = { "btn_chapter_${it.effectiveId}" }) { chapter ->
+                            val submission = viewModel.results.find { it.chapterId == chapter.effectiveId }
+                            Button(
+                                onClick = {
+                                    if (submission != null) {
+                                        onResultClick(submission.id)
+                                    } else {
+                                        onChapterClick(chapter.effectiveId)
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = MaterialTheme.shapes.medium
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = chapter.displayTitle,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        if (chapter.description.isNotEmpty()) {
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = chapter.description,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f),
+                                                maxLines = 1
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = if (submission != null) "View Result" else "Open Chapter",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Section 2: Questions Feed (Formatted exactly like Chapter Feed Buttons)
+                    item {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "Questions Feed",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    if (viewModel.questionsList.isEmpty()) {
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(24.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "No questions available",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        items(viewModel.questionsList, key = { "q_feed_${it.effectiveId}" }) { question ->
+                            val chapTitle = chapterMap[question.chapterId]?.displayTitle ?: "Chapter Exam"
+                            val submission = viewModel.results.find { it.chapterId == question.chapterId }
+
+                            Button(
+                                onClick = {
+                                    if (submission != null) {
+                                        onResultClick(submission.id)
+                                    } else {
+                                        onChapterClick(question.chapterId)
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = MaterialTheme.shapes.medium
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Q: ${question.effectiveQuestionText}",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "$chapTitle • ${if (question.isMcq) "MCQ" else "Short"} (${question.marks} marks)",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
+                                            maxLines = 1
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = if (submission != null) "View Result" else "Open Question",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Section 3: Pending Exams (Unanswered)
+                    if (viewModel.pendingChapters.isNotEmpty()) {
+                        item {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "Pending Exams (Unanswered)",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        items(viewModel.pendingChapters, key = { "pending_exam_${it.effectiveId}" }) { chapter ->
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -325,73 +465,7 @@ fun StudentDashboardScreen(
                         }
                     }
 
-                    // Section 2: Questions Feed
-                    if (viewModel.questionsList.isNotEmpty()) {
-                        item {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "Questions Feed",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        items(viewModel.questionsList, key = { it.effectiveId }) { question ->
-                            val chapTitle = chapterMap[question.chapterId]?.displayTitle ?: "Chapter Exam"
-                            val isAnswered = viewModel.answeredChapterIds.contains(question.chapterId)
-
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                            ) {
-                                Column(modifier = Modifier.padding(16.dp)) {
-                                    Text(
-                                        text = "Q: ${question.effectiveQuestionText}",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        AssistChip(
-                                            onClick = {},
-                                            label = { Text(if (question.isMcq) "MCQ" else "Short Question") },
-                                            colors = AssistChipDefaults.assistChipColors(
-                                                containerColor = MaterialTheme.colorScheme.secondaryContainer
-                                            )
-                                        )
-                                        Text(
-                                            text = "Marks: ${question.marks}",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = "Chapter: $chapTitle",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        TextButton(
-                                            onClick = { onChapterClick(question.chapterId) }
-                                        ) {
-                                            Text(if (isAnswered) "View Result" else "Take Exam")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Section 3: My Exam Results
+                    // Section 4: My Exam Results
                     item {
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
@@ -422,7 +496,7 @@ fun StudentDashboardScreen(
                             }
                         }
                     } else {
-                        items(viewModel.results, key = { it.id }) { result ->
+                        items(viewModel.results, key = { "result_item_${it.id}" }) { result ->
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()

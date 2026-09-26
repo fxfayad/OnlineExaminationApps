@@ -24,6 +24,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.firebase.auth.FirebaseAuth
 import com.myapps.onlineexaminationapps.firebase.AnalyticsRepository
+import com.myapps.onlineexaminationapps.firebase.CProgrammingDataSeeder
 import com.myapps.onlineexaminationapps.firebase.ChapterRepository
 import com.myapps.onlineexaminationapps.firebase.QuestionRepository
 import com.myapps.onlineexaminationapps.model.Chapter
@@ -61,6 +62,8 @@ class TeacherDashboardViewModel : ViewModel() {
         errorMessage = null
         chaptersJob?.cancel()
         questionsJob?.cancel()
+
+        CProgrammingDataSeeder.seedCProgrammingCourse()
 
         // Realtime Firestore snapshot listener for My Chapters (teacherId == currentUser.uid)
         chaptersJob = viewModelScope.launch {

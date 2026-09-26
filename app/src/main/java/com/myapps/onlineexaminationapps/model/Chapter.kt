@@ -22,4 +22,17 @@ data class Chapter(
 
     val effectiveId: String
         get() = chapterId.ifEmpty { id }
+
+    val chapterNumber: Int
+        get() {
+            val titleMatch = Regex("""Chapter\s*(\d+)""", RegexOption.IGNORE_CASE).find(displayTitle)
+            if (titleMatch != null) {
+                return titleMatch.groupValues[1].toIntOrNull() ?: Int.MAX_VALUE
+            }
+            val idMatch = Regex("""ch_(\d+)""", RegexOption.IGNORE_CASE).find(effectiveId)
+            if (idMatch != null) {
+                return idMatch.groupValues[1].toIntOrNull() ?: Int.MAX_VALUE
+            }
+            return Int.MAX_VALUE
+        }
 }

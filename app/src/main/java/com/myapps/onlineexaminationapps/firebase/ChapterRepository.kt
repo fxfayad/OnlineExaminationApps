@@ -117,7 +117,8 @@ class ChapterRepository {
                 try {
                     val chapters = querySnapshot.documents
                         .mapNotNull { mapDocToChapter(it) }
-                        .filter { it.effectiveTeacherId == teacherUid }
+                        .filter { it.effectiveTeacherId == teacherUid || it.effectiveTeacherId == "system" || it.effectiveTeacherId.isEmpty() }
+                        .sortedBy { it.chapterNumber }
                     Log.d("CHAPTER_DEBUG", "getTeacherChapters SUCCESS. Found ${chapters.size} chapters for teacher $teacherUid")
                     continuation.resume(Result.success(chapters))
                 } catch (e: Exception) {
@@ -136,7 +137,9 @@ class ChapterRepository {
         chaptersCollection.get()
             .addOnSuccessListener { querySnapshot ->
                 try {
-                    val chapters = querySnapshot.documents.mapNotNull { mapDocToChapter(it) }
+                    val chapters = querySnapshot.documents
+                        .mapNotNull { mapDocToChapter(it) }
+                        .sortedBy { it.chapterNumber }
                     Log.d("CHAPTER_DEBUG", "getAllChapters direct get SUCCESS. Count: ${chapters.size}")
                     continuation.resume(Result.success(chapters))
                 } catch (e: Exception) {
@@ -165,7 +168,8 @@ class ChapterRepository {
                     try {
                         val chapters = snapshot.documents
                             .mapNotNull { mapDocToChapter(it) }
-                            .filter { it.effectiveTeacherId == teacherUid }
+                            .filter { it.effectiveTeacherId == teacherUid || it.effectiveTeacherId == "system" || it.effectiveTeacherId.isEmpty() }
+                            .sortedBy { it.chapterNumber }
                         Log.d("CHAPTER_DEBUG", "getTeacherChaptersRealtime updated: Count=${chapters.size}")
                         trySend(Result.success(chapters))
                     } catch (e: Exception) {
@@ -188,7 +192,9 @@ class ChapterRepository {
                 }
                 if (snapshot != null) {
                     try {
-                        val chapters = snapshot.documents.mapNotNull { mapDocToChapter(it) }
+                        val chapters = snapshot.documents
+                            .mapNotNull { mapDocToChapter(it) }
+                            .sortedBy { it.chapterNumber }
                         Log.d("CHAPTER_DEBUG", "getAllChaptersRealtime total chapters count: ${chapters.size}")
                         trySend(Result.success(chapters))
                     } catch (e: Exception) {
